@@ -1,0 +1,24 @@
+{
+	"name": "create-silk-app",
+	"version": "0.1.0",
+	"description": "Scaffold a new Silk desktop application",
+	"type": "module",
+	"bin": {
+		"create-silk-app": "bin/create-silk-app.js"
+	},
+	"files": [
+		"bin"
+	],
+	"engines": {
+		"node": ">=18.0.0"
+	},
+	"keywords": [
+		"silk",
+		"desktop",
+		"webview",
+		"zig",
+		"scaffold",
+		"create"
+	],
+	"license": "MIT"
+}
