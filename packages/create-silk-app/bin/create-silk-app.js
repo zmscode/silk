@@ -3,13 +3,52 @@
 import { mkdir, writeFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { execSync } from "node:child_process";
 
 // ─── Argument Parsing ───────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
 const zigFlag = args.includes("--zig");
-const positional = args.filter((a) => !a.startsWith("--"));
+const templateFlag =
+	args.find((a) => a.startsWith("--template="))?.split("=")[1] || (args.includes("--template") ? args[args.indexOf("--template") + 1] : null);
+const positional = args.filter((a) => !a.startsWith("--") && a !== templateFlag);
 const cliName = positional[0] || null;
+
+const TEMPLATES = ["vanilla", "react"];
+
+// ─── Package Manager Detection ──────────────────────────────────────────
+
+function detectPackageManager() {
+	// Check if invoked via a specific package manager
+	const ua = process.env.npm_config_user_agent || "";
+	if (ua.startsWith("bun")) return "bun";
+	if (ua.startsWith("pnpm")) return "pnpm";
+	if (ua.startsWith("yarn")) return "yarn";
+	if (ua.startsWith("npm")) return "npm";
+
+	// Fallback: check which are available
+	for (const pm of ["bun", "pnpm", "yarn", "npm"]) {
+		try {
+			execSync(`${pm} --version`, { stdio: "ignore" });
+			return pm;
+		} catch {
+			continue;
+		}
+	}
+	return "npm";
+}
+
+function installCmd(pm) {
+	return pm === "yarn" ? "yarn" : `${pm} install`;
+}
+
+function runCmd(pm, script) {
+	if (pm === "npm") return `npx ${script}`;
+	if (pm === "yarn") return `yarn ${script}`;
+	if (pm === "pnpm") return `pnpm ${script}`;
+	if (pm === "bun") return `bun run ${script}`;
+	return `npx ${script}`;
+}
 
 // ─── Interactive Prompts ────────────────────────────────────────────────
 
@@ -17,7 +56,11 @@ async function prompt() {
 	const isTTY = process.stdin.isTTY;
 
 	if (!isTTY) {
-		return { name: cliName || "my-silk-app", withZig: zigFlag };
+		return {
+			name: cliName || "my-silk-app",
+			template: templateFlag || "vanilla",
+			withZig: zigFlag,
+		};
 	}
 
 	const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -26,6 +69,12 @@ async function prompt() {
 	const nameInput = await rl.question(`Project name (${defaultName}): `);
 	const name = nameInput.trim() || defaultName;
 
+	let template = templateFlag;
+	if (!template) {
+		const tmplInput = await rl.question(`Template — ${TEMPLATES.join(", ")} (vanilla): `);
+		template = tmplInput.trim().toLowerCase() || "vanilla";
+	}
+
 	let withZig = zigFlag;
 	if (!zigFlag) {
 		const zigInput = await rl.question("Include Zig backend? (y/N): ");
@@ -33,7 +82,7 @@ async function prompt() {
 	}
 
 	rl.close();
-	return { name, withZig };
+	return { name, template, withZig };
 }
 
 // ─── Validation ─────────────────────────────────────────────────────────
@@ -41,6 +90,13 @@ async function prompt() {
 function validateName(name) {
 	if (!/^[a-z][a-z0-9-]*$/.test(name)) {
 		console.error(`Error: Invalid project name "${name}". Use lowercase letters, numbers, and hyphens (e.g. "my-app").`);
+		process.exit(1);
+	}
+}
+
+function validateTemplate(template) {
+	if (!TEMPLATES.includes(template)) {
+		console.error(`Error: Unknown template "${template}". Available: ${TEMPLATES.join(", ")}`);
 		process.exit(1);
 	}
 }
@@ -54,9 +110,10 @@ function toTitleCase(str) {
 
 // ─── Scaffolding ────────────────────────────────────────────────────────
 
-async function scaffold(name, withZig) {
+async function scaffold(name, template, withZig) {
 	const title = toTitleCase(name);
 	const dir = join(process.cwd(), name);
+	const pm = detectPackageManager();
 
 	try {
 		await access(dir);
@@ -66,18 +123,19 @@ async function scaffold(name, withZig) {
 		// Directory doesn't exist — good
 	}
 
-	console.log(`\nCreating Silk project: ${name}\n`);
+	console.log(`\nCreating Silk project: ${name} (${template})\n`);
 
 	await mkdir(join(dir, "src"), { recursive: true });
 
-	await writeFile(join(dir, "silk.config.json"), silkConfig(name, title));
-	await writeFile(join(dir, "package.json"), packageJson(name));
-	await writeFile(join(dir, "tsconfig.json"), tsconfig);
-	await writeFile(join(dir, "vite.config.ts"), viteConfig);
-	await writeFile(join(dir, "src", "index.html"), indexHtml(title));
-	await writeFile(join(dir, "src", "main.ts"), mainTs);
-	await writeFile(join(dir, "src", "style.css"), styleCss);
+	// Shared files
+	await writeFile(join(dir, "silk.config.json"), silkConfig(name, title, pm));
 	await writeFile(join(dir, ".gitignore"), gitignore);
+
+	if (template === "vanilla") {
+		await scaffoldVanilla(dir, name, title);
+	} else if (template === "react") {
+		await scaffoldReact(dir, name, title);
+	}
 
 	if (withZig) {
 		await mkdir(join(dir, "src-silk"), { recursive: true });
@@ -87,13 +145,34 @@ async function scaffold(name, withZig) {
 
 	console.log(`\nDone! Next steps:\n`);
 	console.log(`  cd ${name}`);
-	console.log(`  npm install`);
-	console.log(`  npx silk dev\n`);
+	console.log(`  ${installCmd(pm)}`);
+	console.log(`  ${runCmd(pm, "silk dev")}\n`);
 }
 
-// ─── Templates ──────────────────────────────────────────────────────────
+async function scaffoldVanilla(dir, name, title) {
+	await writeFile(join(dir, "package.json"), vanillaPackageJson(name));
+	await writeFile(join(dir, "tsconfig.json"), vanillaTsconfig);
+	await writeFile(join(dir, "vite.config.ts"), vanillaViteConfig);
+	await writeFile(join(dir, "src", "index.html"), vanillaIndexHtml(title));
+	await writeFile(join(dir, "src", "main.ts"), vanillaMainTs);
+	await writeFile(join(dir, "src", "style.css"), sharedStyleCss);
+}
 
-function silkConfig(name, title) {
+async function scaffoldReact(dir, name, title) {
+	await writeFile(join(dir, "package.json"), reactPackageJson(name));
+	await writeFile(join(dir, "tsconfig.json"), reactTsconfig);
+	await writeFile(join(dir, "vite.config.ts"), reactViteConfig);
+	await writeFile(join(dir, "index.html"), reactIndexHtml(title));
+	await writeFile(join(dir, "src", "App.tsx"), reactAppTsx(title));
+	await writeFile(join(dir, "src", "main.tsx"), reactMainTsx);
+	await writeFile(join(dir, "src", "App.css"), sharedStyleCss);
+	await writeFile(join(dir, "src", "vite-env.d.ts"), reactViteEnvDts);
+}
+
+// ─── Shared Templates ───────────────────────────────────────────────────
+
+function silkConfig(name, title, pm) {
+	const devCommand = pm === "bun" ? "bun run dev" : pm === "pnpm" ? "pnpm dev" : "npm run dev";
 	return (
 		JSON.stringify(
 			{
@@ -111,7 +190,7 @@ function silkConfig(name, title) {
 					window: true,
 				},
 				devServer: {
-					command: "npm run dev",
+					command: devCommand,
 					url: "http://localhost:5173",
 				},
 			},
@@ -121,7 +200,35 @@ function silkConfig(name, title) {
 	);
 }
 
-function packageJson(name) {
+const gitignore = `node_modules/
+dist/
+.DS_Store
+*.log
+`;
+
+const zigMain = `//! Custom Silk Commands
+//!
+//! Register your own Zig-powered IPC commands here.
+//! These are called from TypeScript via invoke("myapp:command", params).
+
+const std = @import("std");
+const silk = @import("silk");
+
+pub fn setup(router: *silk.Router) void {
+    router.register("myapp:hello", &hello, null);
+}
+
+fn hello(ctx: *silk.Context, params: std.json.Value) !std.json.Value {
+    _ = params;
+    var obj = std.json.ObjectMap.init(ctx.allocator);
+    try obj.put("message", .{ .string = "Hello from Zig!" });
+    return .{ .object = obj };
+}
+`;
+
+// ─── Vanilla Templates ──────────────────────────────────────────────────
+
+function vanillaPackageJson(name) {
 	return (
 		JSON.stringify(
 			{
@@ -149,7 +256,7 @@ function packageJson(name) {
 	);
 }
 
-const tsconfig = `{
+const vanillaTsconfig = `{
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
@@ -166,7 +273,7 @@ const tsconfig = `{
 }
 `;
 
-const viteConfig = `import { defineConfig } from "vite";
+const vanillaViteConfig = `import { defineConfig } from "vite";
 
 export default defineConfig({
   server: {
@@ -179,7 +286,7 @@ export default defineConfig({
 });
 `;
 
-function indexHtml(title) {
+function vanillaIndexHtml(title) {
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -201,7 +308,7 @@ function indexHtml(title) {
 `;
 }
 
-const mainTs = `import { invoke } from "@silkapp/api";
+const vanillaMainTs = `import { invoke } from "@silkapp/api";
 import "./style.css";
 
 const btn = document.getElementById("ping-btn")!;
@@ -217,7 +324,138 @@ btn.addEventListener("click", async () => {
 });
 `;
 
-const styleCss = `* {
+// ─── React Templates ────────────────────────────────────────────────────
+
+function reactPackageJson(name) {
+	return (
+		JSON.stringify(
+			{
+				name,
+				private: true,
+				version: "0.1.0",
+				type: "module",
+				scripts: {
+					dev: "vite",
+					build: "tsc -b && vite build",
+					preview: "vite preview",
+				},
+				dependencies: {
+					"@silkapp/api": "^0.2.0",
+					react: "^19.0.0",
+					"react-dom": "^19.0.0",
+				},
+				devDependencies: {
+					"@silkapp/cli": "^0.1.0",
+					"@types/react": "^19.0.0",
+					"@types/react-dom": "^19.0.0",
+					"@vitejs/plugin-react": "^4.3.0",
+					typescript: "^5.7.0",
+					vite: "^6.0.0",
+				},
+			},
+			null,
+			2,
+		) + "\n"
+	);
+}
+
+const reactTsconfig = `{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx"
+  },
+  "include": ["src"]
+}
+`;
+
+const reactViteConfig = `import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 5173,
+    strictPort: true,
+  },
+  build: {
+    outDir: "dist",
+  },
+});
+`;
+
+function reactIndexHtml(title) {
+	return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>
+`;
+}
+
+const reactMainTsx = `import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import App from "./App";
+
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+);
+`;
+
+function reactAppTsx(title) {
+	return `import { useState } from "react";
+import { invoke } from "@silkapp/api";
+import "./App.css";
+
+export default function App() {
+  const [output, setOutput] = useState("");
+
+  async function handlePing() {
+    try {
+      const result = await invoke("silk:ping");
+      setOutput(JSON.stringify(result, null, 2));
+    } catch (e: any) {
+      setOutput(\`Error: \${e.message}\`);
+    }
+  }
+
+  return (
+    <div id="app">
+      <h1>${title}</h1>
+      <p>
+        Edit <code>src/App.tsx</code> to get started.
+      </p>
+      <button onClick={handlePing}>Test IPC</button>
+      <pre>{output}</pre>
+    </div>
+  );
+}
+`;
+}
+
+const reactViteEnvDts = `/// <reference types="vite/client" />
+`;
+
+// ─── Shared Styles ──────────────────────────────────────────────────────
+
+const sharedStyleCss = `* {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -283,34 +521,9 @@ pre {
 }
 `;
 
-const gitignore = `node_modules/
-dist/
-.DS_Store
-*.log
-`;
-
-const zigMain = `//! Custom Silk Commands
-//!
-//! Register your own Zig-powered IPC commands here.
-//! These are called from TypeScript via invoke("myapp:command", params).
-
-const std = @import("std");
-const silk = @import("silk");
-
-pub fn setup(router: *silk.Router) void {
-    router.register("myapp:hello", &hello, null);
-}
-
-fn hello(ctx: *silk.Context, params: std.json.Value) !std.json.Value {
-    _ = params;
-    var obj = std.json.ObjectMap.init(ctx.allocator);
-    try obj.put("message", .{ .string = "Hello from Zig!" });
-    return .{ .object = obj };
-}
-`;
-
 // ─── Main ───────────────────────────────────────────────────────────────
 
-const { name, withZig } = await prompt();
+const { name, template, withZig } = await prompt();
 validateName(name);
-await scaffold(name, withZig);
+validateTemplate(template);
+await scaffold(name, template, withZig);
