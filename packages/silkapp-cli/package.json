@@ -1,0 +1,17 @@
+{
+	"name": "@silkapp/cli",
+	"version": "0.1.0",
+	"description": "Silk desktop framework CLI",
+	"bin": {
+		"silk": "bin/silk.js"
+	},
+	"files": ["bin"],
+	"optionalDependencies": {
+		"@silkapp/cli-darwin-arm64": "0.1.0",
+		"@silkapp/cli-darwin-x64": "0.1.0"
+	},
+	"engines": {
+		"node": ">=18.0.0"
+	},
+	"license": "MIT"
+}

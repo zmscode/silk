@@ -56,6 +56,10 @@ pub const AppState = struct {
         self.router.permissions.grant("shell", Scope.all) catch {};
         self.router.permissions.grant("dialog", Scope.all) catch {};
         self.router.permissions.grant("window", Scope.all) catch {};
+
+        // Debug logging hooks
+        self.router.on_before = &debugBefore;
+        self.router.on_after = &debugAfter;
     }
 
     pub fn deinit(self: *AppState) void {
@@ -74,6 +78,20 @@ fn routerRegisterBridge(ptr: *anyopaque, method: []const u8, handler: silk.Handl
 
 /// Global app state pointer — accessible from ObjC callbacks.
 pub var g_app: ?*AppState = null;
+
+// ─── Debug Hooks ────────────────────────────────────────────────────────
+
+fn debugBefore(method: []const u8) void {
+    std.log.debug("[ipc] → {s}", .{method});
+}
+
+fn debugAfter(method: []const u8, success: bool) void {
+    if (success) {
+        std.log.debug("[ipc] ← {s} OK", .{method});
+    } else {
+        std.log.warn("[ipc] ← {s} FAILED", .{method});
+    }
+}
 
 /// Handle an IPC message from the webview. Wired as the `MessageCallback`.
 pub fn handleMessage(raw_json: []const u8) ?[]const u8 {

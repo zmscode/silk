@@ -7,8 +7,6 @@
 const std = @import("std");
 
 pub fn run(allocator: std.mem.Allocator, io: std.Io, args: []const []const u8) !void {
-    _ = allocator;
-
     var project_name: ?[]const u8 = null;
     var with_zig = false;
 
@@ -24,6 +22,9 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, args: []const []const u8) !
         printErr(io, "Usage: silk init <project-name> [--zig]\n");
         return;
     };
+
+    const title = try toTitleCase(allocator, name);
+    defer allocator.free(title);
 
     printOut(io, "Creating Silk project: ");
     printOut(io, name);
@@ -48,11 +49,21 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, args: []const []const u8) !
     try dir.createDir(io, "src", .default_dir);
 
     // Write all template files
-    try dir.writeFile(io, .{ .sub_path = "silk.config.json", .data = silkConfig(name) });
-    try dir.writeFile(io, .{ .sub_path = "package.json", .data = packageJson(name) });
+    const silk_cfg = try silkConfig(allocator, name, title);
+    defer allocator.free(silk_cfg);
+    try dir.writeFile(io, .{ .sub_path = "silk.config.json", .data = silk_cfg });
+
+    const pkg_json = try packageJson(allocator, name);
+    defer allocator.free(pkg_json);
+    try dir.writeFile(io, .{ .sub_path = "package.json", .data = pkg_json });
+
     try dir.writeFile(io, .{ .sub_path = "tsconfig.json", .data = tsconfig });
     try dir.writeFile(io, .{ .sub_path = "vite.config.ts", .data = viteConfig });
-    try dir.writeFile(io, .{ .sub_path = "src/index.html", .data = indexHtml(name) });
+
+    const idx_html = try indexHtml(allocator, title);
+    defer allocator.free(idx_html);
+    try dir.writeFile(io, .{ .sub_path = "src/index.html", .data = idx_html });
+
     try dir.writeFile(io, .{ .sub_path = "src/main.ts", .data = mainTs });
     try dir.writeFile(io, .{ .sub_path = "src/style.css", .data = styleCss });
     try dir.writeFile(io, .{ .sub_path = ".gitignore", .data = gitignore });
@@ -67,7 +78,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, args: []const []const u8) !
     printOut(io, "\nDone! Next steps:\n");
     printOut(io, "  cd ");
     printOut(io, name);
-    printOut(io, "\n  npm install\n  silk dev\n");
+    printOut(io, "\n  npm install\n  npx silk dev\n");
 }
 
 fn printOut(io: std.Io, msg: []const u8) void {
@@ -80,55 +91,74 @@ fn printErr(io: std.Io, msg: []const u8) void {
     stderr.writeStreamingAll(io, msg) catch {};
 }
 
-// ─── Template Data ──────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────
 
-fn silkConfig(name: []const u8) []const u8 {
-    _ = name;
-    return 
-    \\{
-    \\  "name": "my-silk-app",
-    \\  "window": {
-    \\    "title": "My Silk App",
-    \\    "width": 1024,
-    \\    "height": 768
-    \\  },
-    \\  "permissions": {
-    \\    "fs": true,
-    \\    "clipboard": true,
-    \\    "shell": false,
-    \\    "dialog": true,
-    \\    "window": true
-    \\  },
-    \\  "devServer": {
-    \\    "command": "npm run dev",
-    \\    "url": "http://localhost:5173"
-    \\  }
-    \\}
-    ;
+fn toTitleCase(allocator: std.mem.Allocator, name: []const u8) ![]const u8 {
+    var buf: std.ArrayList(u8) = .{};
+    var capitalize_next = true;
+    for (name) |c| {
+        if (c == '-') {
+            try buf.append(allocator, ' ');
+            capitalize_next = true;
+        } else if (capitalize_next) {
+            try buf.append(allocator, std.ascii.toUpper(c));
+            capitalize_next = false;
+        } else {
+            try buf.append(allocator, c);
+        }
+    }
+    return try buf.toOwnedSlice(allocator);
 }
 
-fn packageJson(name: []const u8) []const u8 {
-    _ = name;
-    return 
-    \\{
-    \\  "name": "my-silk-app",
-    \\  "private": true,
-    \\  "version": "0.1.0",
-    \\  "type": "module",
-    \\  "scripts": {
-    \\    "dev": "vite",
-    \\    "build": "tsc && vite build",
-    \\    "preview": "vite preview"
-    \\  },
-    \\  "dependencies": {
-    \\    "@silk/api": "^0.1.0"
-    \\  },
-    \\  "devDependencies": {
-    \\    "typescript": "^5.7.0",
-    \\    "vite": "^6.0.0"
-    \\  }
-    \\}
-    ;
+// ─── Template Data ──────────────────────────────────────────────────────
+
+fn silkConfig(allocator: std.mem.Allocator, name: []const u8, title: []const u8) ![]const u8 {
+    return std.fmt.allocPrint(allocator,
+        \\{{
+        \\  "name": "{s}",
+        \\  "window": {{
+        \\    "title": "{s}",
+        \\    "width": 1024,
+        \\    "height": 768
+        \\  }},
+        \\  "permissions": {{
+        \\    "fs": true,
+        \\    "clipboard": true,
+        \\    "shell": false,
+        \\    "dialog": true,
+        \\    "window": true
+        \\  }},
+        \\  "devServer": {{
+        \\    "command": "npm run dev",
+        \\    "url": "http://localhost:5173"
+        \\  }}
+        \\}}
+        \\
+    , .{ name, title });
+}
+
+fn packageJson(allocator: std.mem.Allocator, name: []const u8) ![]const u8 {
+    return std.fmt.allocPrint(allocator,
+        \\{{
+        \\  "name": "{s}",
+        \\  "private": true,
+        \\  "version": "0.1.0",
+        \\  "type": "module",
+        \\  "scripts": {{
+        \\    "dev": "vite",
+        \\    "build": "tsc && vite build",
+        \\    "preview": "vite preview"
+        \\  }},
+        \\  "dependencies": {{
+        \\    "@silkapp/api": "^0.1.0"
+        \\  }},
+        \\  "devDependencies": {{
+        \\    "typescript": "^5.7.0",
+        \\    "vite": "^6.0.0"
+        \\  }}
+        \\}}
+        \\
+    , .{name});
 }
 
 const tsconfig =
@@ -163,32 +193,32 @@ const viteConfig =
     \\});
 ;
 
-fn indexHtml(name: []const u8) []const u8 {
-    _ = name;
-    return 
-    \\<!DOCTYPE html>
-    \\<html lang="en">
-    \\<head>
-    \\  <meta charset="UTF-8">
-    \\  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    \\  <title>My Silk App</title>
-    \\  <link rel="stylesheet" href="./style.css">
-    \\</head>
-    \\<body>
-    \\  <div id="app">
-    \\    <h1>My Silk App</h1>
-    \\    <p>Edit <code>src/main.ts</code> to get started.</p>
-    \\    <button id="ping-btn">Test IPC</button>
-    \\    <pre id="output"></pre>
-    \\  </div>
-    \\  <script type="module" src="./main.ts"></script>
-    \\</body>
-    \\</html>
-    ;
+fn indexHtml(allocator: std.mem.Allocator, title: []const u8) ![]const u8 {
+    return std.fmt.allocPrint(allocator,
+        \\<!DOCTYPE html>
+        \\<html lang="en">
+        \\<head>
+        \\  <meta charset="UTF-8">
+        \\  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        \\  <title>{s}</title>
+        \\  <link rel="stylesheet" href="./style.css">
+        \\</head>
+        \\<body>
+        \\  <div id="app">
+        \\    <h1>{s}</h1>
+        \\    <p>Edit <code>src/main.ts</code> to get started.</p>
+        \\    <button id="ping-btn">Test IPC</button>
+        \\    <pre id="output"></pre>
+        \\  </div>
+        \\  <script type="module" src="./main.ts"></script>
+        \\</body>
+        \\</html>
+        \\
+    , .{ title, title });
 }
 
 const mainTs =
-    \\import { invoke } from "@silk/api";
+    \\import { invoke } from "@silkapp/api";
     \\import "./style.css";
     \\
     \\const btn = document.getElementById("ping-btn")!;

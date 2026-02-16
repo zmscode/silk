@@ -8,6 +8,7 @@ const std = @import("std");
 const objc = @import("objc");
 const Router = @import("../ipc/router.zig").Router;
 const Context = @import("../core/context.zig").Context;
+const Scope = @import("../core/permissions.zig").Scope;
 
 pub fn register(router: *Router) void {
     router.register("shell:open", &open, "shell");
@@ -45,6 +46,26 @@ fn exec(ctx: *Context, params: std.json.Value) anyerror!std.json.Value {
     const cmd_val = params.object.get("command") orelse return error.InvalidParams;
     if (cmd_val != .string) return error.InvalidParams;
     const command = cmd_val.string;
+
+    // Check command whitelist if configured
+    const app_mod = @import("../core/app.zig");
+    if (app_mod.g_app) |app| {
+        if (app.router.permissions.getScope("shell")) |scope| {
+            switch (scope) {
+                .commands => |allowed| {
+                    var permitted = false;
+                    for (allowed) |cmd| {
+                        if (std.mem.eql(u8, command, cmd)) {
+                            permitted = true;
+                            break;
+                        }
+                    }
+                    if (!permitted) return error.PermissionDenied;
+                },
+                else => {},
+            }
+        }
+    }
 
     // Build argv: [command] ++ args
     var argv: std.ArrayList([]const u8) = .{};

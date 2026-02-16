@@ -29,20 +29,29 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io) !void {
     const config_json = config_buf[0..bytes_read];
 
     // Parse config
-    const config = parseConfig(config_json) orelse {
+    const parsed = std.json.parseFromSlice(SilkConfig, allocator, config_json, .{
+        .ignore_unknown_fields = true,
+    }) catch {
         printErr(io, "Error: failed to parse silk.config.json.\n");
         return;
     };
+    defer parsed.deinit();
+    const config = parsed.value;
 
-    const dev_command = config.command orelse {
-        printErr(io, "Error: silk.config.json is missing devServer.command.\n");
-        return;
-    };
-    const dev_url = config.url orelse {
-        printErr(io, "Error: silk.config.json is missing devServer.url.\n");
-        return;
-    };
-    const title = config.title orelse "Silk";
+    const dev_command = config.devServer.command;
+    const dev_url = config.devServer.url;
+    const timeout = config.devServer.timeout;
+    const title = config.window.title;
+
+    // Check for user Zig commands and rebuild if needed
+    const has_user_zig = hasUserZig(io);
+    if (has_user_zig) {
+        printOut(io, "Detected src-silk/main.zig — rebuilding with custom commands...\n");
+        if (!rebuildWithUserZig(allocator, io)) {
+            printErr(io, "Error: failed to rebuild silk with user Zig commands.\n");
+            return;
+        }
+    }
 
     // Resolve the silk app binary path (next to silk-cli)
     const silk_bin = findSilkBinary(allocator) orelse {
@@ -67,10 +76,10 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io) !void {
     printOut(io, dev_url);
     printOut(io, " ...\n");
 
-    const ready = pollUrl(io, dev_url, 30);
+    const ready = pollUrl(io, dev_url, timeout);
 
     if (!ready) {
-        printErr(io, "Error: dev server did not become ready within 30 seconds.\n");
+        printErr(io, "Error: dev server did not become ready in time.\n");
         printErr(io, "Check that '");
         printErr(io, dev_command);
         printErr(io, "' starts a server at ");
@@ -106,38 +115,21 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io) !void {
     _ = dev_proc.wait(io) catch {};
 }
 
-// ─── Config Parsing ─────────────────────────────────────────────────────
+// ─── Config ─────────────────────────────────────────────────────────────
 
-const Config = struct {
-    command: ?[]const u8,
-    url: ?[]const u8,
-    title: ?[]const u8,
+const SilkConfig = struct {
+    name: []const u8 = "silk-app",
+    window: struct {
+        title: []const u8 = "Silk",
+        width: u32 = 1024,
+        height: u32 = 768,
+    } = .{},
+    devServer: struct {
+        command: []const u8 = "npm run dev",
+        url: []const u8 = "http://localhost:5173",
+        timeout: u32 = 30,
+    } = .{},
 };
-
-fn parseConfig(json: []const u8) ?Config {
-    var config = Config{ .command = null, .url = null, .title = null };
-    config.command = extractStringField(json, "\"command\"");
-    config.url = extractStringField(json, "\"url\"");
-    config.title = extractStringField(json, "\"title\"");
-    return config;
-}
-
-fn extractStringField(json: []const u8, key: []const u8) ?[]const u8 {
-    const key_pos = std.mem.indexOf(u8, json, key) orelse return null;
-    const after_key = json[key_pos + key.len ..];
-
-    var i: usize = 0;
-    while (i < after_key.len and (after_key[i] == ' ' or after_key[i] == ':' or after_key[i] == '\t' or after_key[i] == '\n' or after_key[i] == '\r')) : (i += 1) {}
-
-    if (i >= after_key.len or after_key[i] != '"') return null;
-    i += 1;
-
-    const start = i;
-    while (i < after_key.len and after_key[i] != '"') : (i += 1) {}
-    if (i >= after_key.len) return null;
-
-    return after_key[start..i];
-}
 
 // ─── URL Polling ────────────────────────────────────────────────────────
 
@@ -180,6 +172,89 @@ fn sleep(io: std.Io) void {
         .stderr = .ignore,
     }) catch return;
     _ = proc.wait(io) catch {};
+}
+
+// ─── User Zig Detection ─────────────────────────────────────────────────
+
+fn hasUserZig(io: std.Io) bool {
+    const cwd = std.Io.Dir.cwd();
+    cwd.access(io, "src-silk/main.zig", .{}) catch return false;
+    return true;
+}
+
+/// Rebuild the silk binary with -Duser-zig pointing at the project's src-silk/main.zig.
+/// The silk project root is two levels up from the silk-cli binary (zig-out/bin/silk-cli → project root).
+fn rebuildWithUserZig(allocator: std.mem.Allocator, io: std.Io) bool {
+    // Find the silk project root (where build.zig lives) — parent of zig-out/bin/
+    var root_buf: [4096]u8 = undefined;
+    const silk_root = findSilkRoot(&root_buf) orelse return false;
+
+    // Get absolute path to CWD's src-silk/main.zig via realpath
+    var realpath_buf: std.ArrayList(u8) = .{};
+    defer realpath_buf.deinit(allocator);
+    var realpath_err: std.ArrayList(u8) = .{};
+    defer realpath_err.deinit(allocator);
+
+    var realpath_proc = std.process.spawn(io, .{
+        .argv = &.{ "/usr/bin/realpath", "src-silk/main.zig" },
+        .stdout = .pipe,
+        .stderr = .pipe,
+    }) catch return false;
+
+    realpath_proc.collectOutput(allocator, &realpath_buf, &realpath_err, 4096) catch return false;
+    const realpath_term = realpath_proc.wait(io) catch return false;
+    switch (realpath_term) {
+        .exited => |code| if (code != 0) return false,
+        else => return false,
+    }
+
+    const abs_user_zig = std.mem.trimEnd(u8, realpath_buf.items, "\n\r");
+    if (abs_user_zig.len == 0) return false;
+
+    // Build the -Duser-zig argument
+    const user_zig_arg = std.fmt.allocPrint(allocator, "-Duser-zig={s}", .{abs_user_zig}) catch return false;
+    defer allocator.free(user_zig_arg);
+
+    // Run zig build from the silk project root
+    var build_proc = std.process.spawn(io, .{
+        .argv = &.{ "zig", "build", user_zig_arg },
+        .cwd = silk_root,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    }) catch return false;
+
+    const build_term = build_proc.wait(io) catch return false;
+    switch (build_term) {
+        .exited => |code| return code == 0,
+        else => return false,
+    }
+}
+
+fn findSilkRoot(buf: *[4096]u8) ?[]const u8 {
+    // silk-cli lives at <silk-root>/zig-out/bin/silk-cli
+    // So silk root is two directories up from the binary.
+    var buf_size: u32 = buf.len;
+    const rc = std.c._NSGetExecutablePath(buf, &buf_size);
+    if (rc != 0) return null;
+
+    const exe_path = buf[0..buf_size];
+
+    // Strip /silk-cli filename
+    const last_slash = std.mem.lastIndexOfScalar(u8, exe_path, '/') orelse return null;
+    const bin_dir = exe_path[0..last_slash];
+
+    // Strip /bin
+    const second_slash = std.mem.lastIndexOfScalar(u8, bin_dir, '/') orelse return null;
+    const zig_out_dir = bin_dir[0..second_slash];
+
+    // Strip /zig-out
+    const third_slash = std.mem.lastIndexOfScalar(u8, zig_out_dir, '/') orelse return null;
+
+    // Verify this looks right by checking the last component was "zig-out"
+    const zig_out_name = zig_out_dir[third_slash + 1 ..];
+    if (!std.mem.eql(u8, zig_out_name, "zig-out")) return null;
+
+    return buf[0..third_slash];
 }
 
 // ─── Binary Location ────────────────────────────────────────────────────

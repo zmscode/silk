@@ -6,6 +6,7 @@
 const std = @import("std");
 const Router = @import("../ipc/router.zig").Router;
 const Context = @import("../core/context.zig").Context;
+const Scope = @import("../core/permissions.zig").Scope;
 
 const Dir = std.Io.Dir;
 
@@ -21,6 +22,29 @@ pub fn register(router: *Router) void {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────
+
+/// Validate a path: reject directory traversal (`..`) and enforce allowed-paths scope.
+fn validatePath(path: []const u8) !void {
+    // Reject paths containing ".." segments
+    var it = std.mem.splitScalar(u8, path, '/');
+    while (it.next()) |segment| {
+        if (std.mem.eql(u8, segment, "..")) return error.PermissionDenied;
+    }
+
+    // Check path scope from permissions (if configured)
+    const app_mod = @import("../core/app.zig");
+    const app = app_mod.g_app orelse return;
+    const scope = app.router.permissions.getScope("fs") orelse return;
+    switch (scope) {
+        .paths => |allowed| {
+            for (allowed) |prefix| {
+                if (std.mem.startsWith(u8, path, prefix)) return;
+            }
+            return error.PermissionDenied;
+        },
+        else => {},
+    }
+}
 
 fn getStringParam(params: std.json.Value, key: []const u8) ![]const u8 {
     if (params != .object) return error.InvalidParams;
@@ -44,6 +68,7 @@ fn jsonObject(allocator: std.mem.Allocator) std.json.ObjectMap {
 
 fn readFile(ctx: *Context, params: std.json.Value) anyerror!std.json.Value {
     const path = try getStringParam(params, "path");
+    try validatePath(path);
 
     const file = try Dir.openFileAbsolute(ctx.io, path, .{});
     defer file.close(ctx.io);
@@ -62,6 +87,7 @@ fn readFile(ctx: *Context, params: std.json.Value) anyerror!std.json.Value {
 
 fn writeFile(ctx: *Context, params: std.json.Value) anyerror!std.json.Value {
     const path = try getStringParam(params, "path");
+    try validatePath(path);
     const contents = try getStringParam(params, "contents");
 
     Dir.cwd().writeFile(ctx.io, .{
@@ -77,6 +103,7 @@ fn writeFile(ctx: *Context, params: std.json.Value) anyerror!std.json.Value {
 
 fn exists(ctx: *Context, params: std.json.Value) anyerror!std.json.Value {
     const path = try getStringParam(params, "path");
+    try validatePath(path);
 
     const result = blk: {
         Dir.cwd().access(ctx.io, path, .{}) catch break :blk false;
@@ -90,6 +117,7 @@ fn exists(ctx: *Context, params: std.json.Value) anyerror!std.json.Value {
 
 fn readDir(ctx: *Context, params: std.json.Value) anyerror!std.json.Value {
     const path = try getStringParam(params, "path");
+    try validatePath(path);
 
     var dir = try Dir.cwd().openDir(ctx.io, path, .{ .iterate = true });
     defer dir.close(ctx.io);
@@ -111,6 +139,7 @@ fn readDir(ctx: *Context, params: std.json.Value) anyerror!std.json.Value {
 
 fn mkdir(ctx: *Context, params: std.json.Value) anyerror!std.json.Value {
     const path = try getStringParam(params, "path");
+    try validatePath(path);
     const recursive = getBoolParam(params, "recursive", false);
 
     if (recursive) {
@@ -126,6 +155,7 @@ fn mkdir(ctx: *Context, params: std.json.Value) anyerror!std.json.Value {
 
 fn remove(ctx: *Context, params: std.json.Value) anyerror!std.json.Value {
     const path = try getStringParam(params, "path");
+    try validatePath(path);
     const recursive = getBoolParam(params, "recursive", false);
 
     if (recursive) {
@@ -147,6 +177,7 @@ fn remove(ctx: *Context, params: std.json.Value) anyerror!std.json.Value {
 
 fn fileStat(ctx: *Context, params: std.json.Value) anyerror!std.json.Value {
     const path = try getStringParam(params, "path");
+    try validatePath(path);
 
     const file = try Dir.openFileAbsolute(ctx.io, path, .{});
     defer file.close(ctx.io);

@@ -23,6 +23,8 @@ const Route = struct {
 pub const Router = struct {
     routes: std.StringHashMap(Route),
     permissions: Permissions,
+    on_before: ?*const fn (method: []const u8) void = null,
+    on_after: ?*const fn (method: []const u8, success: bool) void = null,
 
     pub fn init(allocator: std.mem.Allocator) Router {
         var r = Router{
@@ -51,8 +53,11 @@ pub const Router = struct {
     /// Dispatch an IPC command. Looks up the route, checks permissions,
     /// calls the handler, and returns a serialized JSON response.
     pub fn dispatch(self: *Router, allocator: std.mem.Allocator, io: std.Io, cmd: ipc.Command) ?[]const u8 {
+        if (self.on_before) |hook| hook(cmd.method);
+
         // Look up the route
         const route = self.routes.get(cmd.method) orelse {
+            if (self.on_after) |hook| hook(cmd.method, false);
             return ipc.serializeResponse(allocator, .{ .err = .{
                 .id = cmd.id,
                 .@"error" = .{ .code = "METHOD_NOT_FOUND", .message = "Unknown method" },
@@ -62,6 +67,7 @@ pub const Router = struct {
         // Check permissions
         if (route.permission) |perm_key| {
             if (!self.permissions.check(perm_key)) {
+                if (self.on_after) |hook| hook(cmd.method, false);
                 return ipc.serializeResponse(allocator, .{ .err = .{
                     .id = cmd.id,
                     .@"error" = .{ .code = "PERMISSION_DENIED", .message = "Permission denied" },
@@ -79,12 +85,14 @@ pub const Router = struct {
 
         // Call the handler
         const result = route.handler(&ctx, cmd.params) catch |err| {
+            if (self.on_after) |hook| hook(cmd.method, false);
             return ipc.serializeResponse(allocator, .{ .err = .{
                 .id = cmd.id,
                 .@"error" = .{ .code = "INTERNAL_ERROR", .message = @errorName(err) },
             } }) catch null;
         };
 
+        if (self.on_after) |hook| hook(cmd.method, true);
         return ipc.serializeResponse(allocator, .{ .ok = .{
             .id = cmd.id,
             .result = result,

@@ -135,9 +135,10 @@ function packageJson(name) {
 					preview: "vite preview",
 				},
 				dependencies: {
-					"@silkapp/api": "^0.1.0",
+					"@silkapp/api": "^0.2.0",
 				},
 				devDependencies: {
+					"@silkapp/cli": "^0.1.0",
 					typescript: "^5.7.0",
 					vite: "^6.0.0",
 				},

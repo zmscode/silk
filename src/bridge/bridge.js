@@ -5,6 +5,7 @@
 (function () {
 	"use strict";
 
+	const MAX_PENDING = 1000;
 	let nextId = 1;
 	const pending = new Map();
 	const listeners = new Map();
@@ -17,6 +18,10 @@
 	 */
 	function invoke(method, params) {
 		return new Promise((resolve, reject) => {
+			if (pending.size >= MAX_PENDING) {
+				reject(new Error("Too many pending requests"));
+				return;
+			}
 			const id = nextId++;
 			pending.set(id, { resolve, reject });
 

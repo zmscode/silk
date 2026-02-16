@@ -16,3 +16,8 @@ dist/
 # Debug/temp
 FULLSCREEN_ERROR.txt
 *.log
+my-cool-app/
+
+# Platform binaries (built, not committed)
+packages/silkapp-cli-darwin-arm64/bin/
+packages/silkapp-cli-darwin-x64/bin/

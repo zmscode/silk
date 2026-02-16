@@ -4,5 +4,8 @@ export * as fs from "./fs";
 export * as dialog from "./dialog";
 export * as clipboard from "./clipboard";
 export * as shell from "./shell";
+export { ExecResult } from "./shell";
 export { defineConfig } from "./types";
 export type { SilkConfig, WindowConfig } from "./types";
+export type { StatResult, DirEntry } from "./fs";
+export type { OpenDialogOptions, SaveDialogOptions, MessageDialogOptions } from "./dialog";

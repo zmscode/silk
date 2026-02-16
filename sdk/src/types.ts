@@ -1,3 +1,4 @@
+/** Configuration for a window. */
 export interface WindowConfig {
 	label?: string;
 	title?: string;
@@ -10,6 +11,7 @@ export interface WindowConfig {
 	center?: boolean;
 }
 
+/** Top-level Silk application configuration (silk.config.json). */
 export interface SilkConfig {
 	appName: string;
 	window?: WindowConfig;
@@ -21,6 +23,17 @@ export interface SilkConfig {
 	csp?: string;
 }
 
+/**
+ * Type-safe helper for defining silk.config.json.
+ *
+ * @param config - Your application config
+ * @returns The same config (identity function for type checking)
+ *
+ * @example
+ * ```ts
+ * export default defineConfig({ appName: "My App" });
+ * ```
+ */
 export function defineConfig(config: SilkConfig): SilkConfig {
 	return config;
 }
