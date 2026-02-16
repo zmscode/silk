@@ -14,13 +14,13 @@ Silk occupies the middle ground between Electron and Tauri v2:
 **The key insight:**
 - **Electron** lets you do everything in JavaScript — file system, dialogs, shell commands, window management — all from the renderer or main process. No compiled language needed. This is great DX but ships a 150MB+ Chromium binary.
 - **Tauri v2** uses the OS webview (small binary) but forces developers to write Rust for any custom backend logic. Built-in plugins cover common cases (fs, dialog, clipboard), but anything beyond that requires `#[tauri::command]` in Rust.
-- **Silk** should combine the best of both: OS webview for small binaries (like Tauri), but **TypeScript-only by default** (like Electron). The `@silk/api` SDK should provide everything a developer needs out of the box — fs, dialogs, clipboard, shell, window management, HTTP, etc. — without ever touching Zig. But if a developer *wants* native performance or low-level access, they can write custom Zig commands and call them from TypeScript.
+- **Silk** should combine the best of both: OS webview for small binaries (like Tauri), but **TypeScript-only by default** (like Electron). The `@silkapp/api` SDK should provide everything a developer needs out of the box — fs, dialogs, clipboard, shell, window management, HTTP, etc. — without ever touching Zig. But if a developer *wants* native performance or low-level access, they can write custom Zig commands and call them from TypeScript.
 
 ### How This Works in Practice
 
 **TypeScript-only developer** (the default, like Electron):
 ```typescript
-import { fs, dialog, clipboard, shell, window } from "@silk/api";
+import { fs, dialog, clipboard, shell, window } from "@silkapp/api";
 
 const file = await dialog.open({ filters: [{ name: "Text", extensions: ["txt"] }] });
 const contents = await fs.readFile(file);
@@ -32,7 +32,7 @@ No `src-silk/` directory needed. No Zig compilation. Just TypeScript.
 
 **TypeScript + Zig developer** (opt-in, like Tauri):
 ```typescript
-import { invoke } from "@silk/api";
+import { invoke } from "@silkapp/api";
 const result = await invoke<{ hash: string }>("myapp:hash_file", { path: "/tmp/large.bin" });
 ```
 
@@ -180,8 +180,8 @@ This is the critical phase that makes Silk TypeScript-first. Every plugin listed
 
 ---
 
-### Phase 5: TypeScript SDK (`@silk/api`)
-- [x] Create `sdk/package.json` — `@silk/api` v0.1.0
+### Phase 5: TypeScript SDK (`@silkapp/api`)
+- [x] Create `sdk/package.json` — `@silkapp/api` v0.1.0 (originally `@silk/api`, renamed due to npm org availability)
 - [x] Create `sdk/tsconfig.json` — ES2022, ESNext modules, declaration files
 - [x] Create `sdk/src/index.ts` — re-exports all modules
 - [x] Create `sdk/src/ipc.ts` — `invoke<T>()`, `listen<T>()` with bridge detection
@@ -202,7 +202,7 @@ This is the critical phase that makes Silk TypeScript-first. Every plugin listed
 
 **Ideas for improvement:**
 - Add runtime validation in the SDK so TypeScript developers get clear errors if they pass wrong param types (rather than cryptic Zig-side parse failures).
-- Consider shipping an `@silk/api/vite` plugin that auto-configures the dev server integration.
+- Consider shipping an `@silkapp/api/vite` plugin that auto-configures the dev server integration.
 - Could add `fs.readJSON()` / `fs.writeJSON()` convenience methods that handle parse/stringify.
 - `ExecResult` could include a `.ok` boolean (exitCode === 0) for ergonomic checks.
 - Consider adding JSDoc comments to all exported functions for IDE hover documentation.
@@ -251,7 +251,7 @@ This is the critical phase that makes Silk TypeScript-first. Every plugin listed
 - Templates currently hardcode `"my-silk-app"` — should interpolate the actual project name into package.json, silk.config.json, and index.html title. Would need `std.fmt.allocPrint` or arena-based string building.
 - Consider adding `--template react` / `--template vue` flags for framework-specific scaffolds.
 - Could auto-detect if `npm` / `bun` / `pnpm` is available and adjust the "Next steps" output accordingly.
-- The scaffolded `src/main.ts` imports from `@silk/api` which isn't published to npm yet — need to handle this (local path dependency, or npm publish, or Vite alias).
+- The scaffolded `src/main.ts` imports from `@silkapp/api` — published to npm as of Phase 11.
 
 ---
 
@@ -311,58 +311,110 @@ This is the critical phase that makes Silk TypeScript-first. Every plugin listed
 
 ---
 
-## Future Phases (Post-MVP)
+## Phases 10-13: Polish & Distribution (Complete)
 
 ### Phase 10: CLI & DX Polish
-Improve the developer experience across the CLI and dev workflow.
-- [ ] Interpolate project name into scaffolded templates (package.json, silk.config.json, index.html title)
-- [ ] Add `--template react` / `--template vue` / `--template svelte` flags to `silk init`
-- [ ] Auto-detect `npm` / `bun` / `pnpm` and adjust CLI output + scaffold accordingly
-- [ ] `silk dev` should auto-detect `src-silk/main.zig` and pass `-Duser-zig` automatically
-- [ ] `silk dev` timeout should be configurable in `silk.config.json`
-- [ ] Replace manual JSON field extraction in `silk dev` with proper `std.json` parsing
-- [ ] Forward SIGINT in `silk dev` to gracefully shut down app + dev server
-- [ ] Watch `src-silk/main.zig` for changes and auto-recompile Zig backend during dev
+- [x] Interpolate project name into scaffolded templates (package.json, silk.config.json, index.html title)
+- [x] Add `toTitleCase()` helper: `"my-cool-app"` → `"My Cool App"` for window titles
+- [x] Replace manual JSON field extraction in `silk dev` with `std.json.parseFromSlice(SilkConfig, ...)`
+- [x] Typed `SilkConfig` struct with nested `window` and `devServer` structs (with defaults)
+- [x] `silk dev` timeout configurable via `devServer.timeout` in silk.config.json
+- [x] Auto-detect `src-silk/main.zig` and rebuild with `-Duser-zig` automatically
+- [x] Rename `@silk/api` → `@silkapp/api` in all templates (npm org "silk" was taken)
 
-### Phase 11: SDK Polish & Publishing
-Make the TypeScript SDK production-ready and publish to npm.
-- [ ] Publish `@silk/api` to npm so scaffolded projects can `npm install` immediately
-- [ ] Ship `@silk/api/vite` plugin for auto-configured dev server integration
-- [ ] Add JSDoc comments to all exported SDK functions for IDE hover documentation
-- [ ] Add runtime validation in SDK so wrong param types give clear errors (not cryptic Zig parse failures)
-- [ ] `fs.readJSON()` / `fs.writeJSON()` — convenience methods with parse/stringify
-- [ ] `ExecResult.ok` boolean (exitCode === 0) for ergonomic checks
-- [ ] `invoke()` timeout option — prevent hung commands from leaving dangling promises
-- [ ] `dialog:open` file type filters — `allowedContentTypes` / `allowedFileTypes` on NSOpenPanel
-- [ ] Clipboard binary/image support (read/write images, rich text)
+**Lessons learned:**
+- `std.json.parseFromSlice` in 0.16-dev returns `Parsed(T)` with `.value` and `.deinit()`. Need `ignore_unknown_fields = true` since config has fields (like `permissions`) the struct doesn't model.
+- `std.fmt.allocPrint` requires JSON braces to be escaped as `{{` / `}}` in format strings.
+- `std.mem.trimRight` was renamed to `std.mem.trimEnd` in 0.16-dev.
+- `ArrayList.toOwnedSlice(allocator)` returns an exact-sized allocation that the caller can `allocator.free()`.
+- The auto-detect rebuild works by finding the silk project root (two directories up from `silk-cli` binary in `zig-out/bin/`), resolving the absolute path to `src-silk/main.zig` via `/usr/bin/realpath`, then running `zig build -Duser-zig=<abs_path>` with `cwd` set to the project root.
+- Cross-compiling for x64 (`-Dtarget=x86_64-macos`) fails because Zig can't find macOS system frameworks during cross-compilation. x64 binaries need to be built natively on Intel or via CI with the right SDK paths.
+
+**Ideas for improvement:**
+- Add `--template react` / `--template vue` / `--template svelte` flags to `silk init`
+- Auto-detect `npm` / `bun` / `pnpm` and adjust CLI output + scaffold accordingly
+- Forward SIGINT in `silk dev` to gracefully shut down app + dev server
+- Watch `src-silk/main.zig` for changes and auto-recompile Zig backend during dev
+
+---
+
+### Phase 11: SDK Polish
+- [x] JSDoc comments on all exported functions, classes, interfaces, and types
+- [x] `fs.readJSON<T>(path)` — readFile + JSON.parse, returns typed result
+- [x] `fs.writeJSON(path, data)` — JSON.stringify(data, null, 2) + writeFile
+- [x] `ExecResult` changed from interface to class with `.ok` getter (exitCode === 0)
+- [x] `invoke()` optional `{ timeout }` third parameter — uses `Promise.race` with `setTimeout`
+- [x] Runtime `typeof` validation at SDK boundary (clear TypeErrors before hitting bridge)
+- [x] Re-export all types from `index.ts` (StatResult, DirEntry, dialog options, ExecResult)
+- [x] Published `@silkapp/api@0.2.0`
+- [x] Updated `create-silk-app` to reference `@silkapp/api@^0.2.0`
+
+**Lessons learned:**
+- Changing `ExecResult` from an interface to a class is a breaking change for users who were manually constructing the object. But since the SDK was at 0.x, this is acceptable. The class approach is better because `.ok` is a computed getter, not a stored property.
+- `Promise.race` for invoke timeouts works cleanly — the setTimeout rejects with a descriptive error including the method name and timeout duration.
+- Runtime validation with `typeof` checks is lightweight and catches the most common mistakes (passing numbers where strings are expected, forgetting to pass required params).
+
+**Ideas for improvement:**
+- Ship `@silkapp/api/vite` plugin for auto-configured dev server integration
+- `dialog:open` file type filters — `allowedContentTypes` / `allowedFileTypes` on NSOpenPanel
+- Clipboard binary/image support (read/write images, rich text)
+
+---
 
 ### Phase 12: Runtime Hardening
-Security, sandboxing, and internal improvements.
-- [ ] Router middleware/hooks (before/after handler) for logging, metrics, debugging
-- [ ] FS sandboxing — restrict file access to project directory by default
-- [ ] `shell:exec` command whitelisting via `Scope.commands` in permissions
-- [ ] Bridge pending map size limit to prevent memory leaks from runaway callers
-- [ ] Expose more types in `silk` module (Permissions, Scope) for advanced user commands
-- [ ] IPC traffic logging / debug panel in demo UI
+- [x] Router dispatch hooks: `on_before` / `on_after` optional function pointers
+- [x] Debug logging via `std.log.debug` / `std.log.warn` wired up in `app.zig`
+- [x] FS path sandboxing: `validatePath()` rejects `..` traversal segments
+- [x] FS path scope enforcement: when permissions have `.paths`, verify path starts with an allowed prefix
+- [x] Shell command whitelisting: when permissions scope has `.commands`, verify the command binary is allowed
+- [x] Bridge pending request limit: `MAX_PENDING = 1000`, immediate reject if exceeded
+
+**Lessons learned:**
+- Hook function pointers (`?*const fn(method: []const u8) void`) are cheap and clean — no vtable, no allocations. Setting them to `null` means zero overhead when not wired up.
+- Path sandboxing via string inspection (`..` segment detection) is a first line of defense but not bulletproof — symlinks and race conditions can bypass it. For production, consider using `realpath` to resolve the canonical path before checking prefixes.
+- The `g_app` global pattern (accessing app state from plugin code via `@import("../core/app.zig").g_app`) works but creates coupling. An alternative would be passing permissions context through the handler, but that would change the `HandlerFn` signature which is part of the public `silk` module API.
+
+**Ideas for improvement:**
+- Expose more types in `silk` module (Permissions, Scope) for advanced user commands
+- IPC traffic logging / debug panel in demo UI
+- Consider `realpath` resolution in `validatePath` for symlink safety
+- Per-handler permission scope (not just namespace-level) for finer-grained control
+
+---
 
 ### Phase 13: npm Distribution
-Distribute Silk as npm packages so users never need to clone the repo or install Zig.
-- [ ] Create `create-silk-app` npm package — interactive scaffolder (`npm create silk-app@latest`)
-  - Prompt for project name, template (vanilla/react/vue/svelte), TypeScript/JavaScript
-  - Scaffold project files (same output as `silk init` but from npm)
-  - Add `@silk/cli` + `@silk/api` as devDependencies in the generated project
-- [ ] Create `@silk/cli` npm package — thin JS wrapper that runs the prebuilt Zig binary
-  - Platform-specific packages: `@silk/cli-darwin-arm64`, `@silk/cli-darwin-x64` (Linux/Windows later)
-  - Main `@silk/cli` package uses `optionalDependencies` — npm auto-downloads the right one
-  - Each platform package contains the prebuilt `silk` + `silk-cli` binaries
-  - JS entry script detects platform, finds the binary, and execs it with args
-  - `npx silk dev`, `npx silk init`, etc. all work
-- [ ] GitHub Actions release pipeline
-  - On tagged release: cross-compile binaries for each target via `zig build -Dtarget=...`
-  - Package each into the corresponding `@silk/cli-<platform>` npm package
-  - Publish all packages to npm
-- [ ] Update `@silk/api` — publish to npm so `npm install` works in scaffolded projects
-- [ ] End-to-end test: `npm create silk-app@latest my-app && cd my-app && npm install && npx silk dev`
+- [x] Created `@silkapp/cli-darwin-arm64` platform package with prebuilt ARM64 binaries (~298KB silk, ~232KB silk-cli)
+- [x] Created `@silkapp/cli-darwin-x64` package structure (placeholder — needs native x64 build or CI)
+- [x] Created `@silkapp/cli` wrapper package with JS binary dispatcher (`bin/silk.js`)
+- [x] JS wrapper: detects platform+arch, resolves platform package via `createRequire`, `execFileSync`
+- [x] Updated `create-silk-app@0.2.0` to include `@silkapp/cli@^0.1.0` as devDependency
+- [x] Updated `@silkapp/api` dependency to `^0.2.0` in scaffolder
+- [x] Binaries excluded from git (`.gitignore` covers `packages/silkapp-cli-*/bin/`)
+
+**Lessons learned:**
+- Zig cross-compilation for macOS (`-Dtarget=x86_64-macos`) fails when linking system frameworks (AppKit, WebKit, objc). The linker can't find `-lobjc` because macOS system libraries aren't available for cross-target. This means x64 binaries must be built natively on Intel hardware or via CI with the macOS SDK available. The `silk-cli` binary (no frameworks) would likely cross-compile fine, but `silk` (the app binary with AppKit+WebKit) cannot.
+- The `optionalDependencies` pattern (used by esbuild, Tauri, SWC, etc.) is elegant — npm automatically skips platform packages that don't match the current OS/arch, so `npm install` on Linux won't fail trying to download darwin packages.
+- `execFileSync` in the JS wrapper propagates the exit code correctly via `err.status`.
+- Release binaries with `-Drelease` in 0.16-dev produce very small outputs (~298KB for the app binary, ~232KB for the CLI). The 0.16-dev build flag is `-Drelease` (not `-Doptimize=ReleaseSmall`).
+- The packages still need to be `npm publish`'d — this wasn't done in this session.
+
+**Ideas for improvement:**
+- GitHub Actions release pipeline: on tagged release, build on macOS runners (both arm64 and x64), publish platform packages to npm automatically
+- Add Linux platform packages once Phase 21 (Linux Backend) is complete
+- Consider universal macOS binaries (`lipo` to merge arm64+x64) to simplify to one darwin package
+- End-to-end test: `npm create silk-app@latest test && cd test && npm install && npx silk dev`
+
+**Still TODO (not yet published):**
+- [ ] `npm publish` for `@silkapp/api@0.2.0`
+- [ ] `npm publish` for `@silkapp/cli-darwin-arm64@0.1.0`
+- [ ] `npm publish` for `@silkapp/cli@0.1.0`
+- [ ] `npm publish` for `create-silk-app@0.2.0`
+- [ ] Build x64 binaries (requires Intel Mac or CI)
+- [ ] GitHub Actions release pipeline for automated builds + publishes
+
+---
+
+## Future Phases
 
 ### Phase 14: Event System (Backend → Frontend)
 Enable the Zig backend to push events to the frontend without a request.
@@ -411,7 +463,7 @@ Shared state between windows and persistent storage.
 
 ### Phase 20: TypeScript Config
 Replace `silk.config.json` with `silk.config.ts` for type-safe config.
-- [ ] `defineConfig()` in `@silk/api` already exists — make the CLI read `.ts` configs
+- [ ] `defineConfig()` in `@silkapp/api` already exists — make the CLI read `.ts` configs
 - [ ] Evaluate via `tsx` or `ts-node` at CLI time, output JSON for the runtime
 - [ ] Support conditional config (dev vs production builds)
 
@@ -440,7 +492,7 @@ Package apps for distribution.
 - [ ] Linux: `.AppImage` or `.deb` packaging
 - [ ] Windows: `.exe` installer or MSIX
 - [ ] `silk build` CLI command — compile frontend (Vite build) + compile Zig + bundle
-- [ ] Include `@silk/api` SDK in the bundle's webview assets
+- [ ] Include `@silkapp/api` SDK in the bundle's webview assets
 
 ### Phase 24: Code Signing & Notarization
 Required for macOS distribution.
@@ -501,7 +553,7 @@ cd sdk && npm run build
 
 ---
 
-## Directory Structure (Target)
+## Directory Structure
 
 ```
 silk/
@@ -509,6 +561,7 @@ silk/
 ├── build.zig.zon              # Zig dependencies
 ├── mise.toml                  # Zig version pinning
 ├── plan.md                    # This file
+├── guide.md                   # Usage guide
 ├── lib/
 │   └── silk.zig               # Shared types (Context, HandlerFn, Router wrapper)
 ├── stubs/
@@ -516,45 +569,56 @@ silk/
 ├── src/
 │   ├── silk.zig               # App entry: NSApplication bootstrap, --url/--title args
 │   ├── core/
-│   │   ├── app.zig            # AppState, plugin registration, user command bridge
+│   │   ├── app.zig            # AppState, plugin registration, debug hooks, user command bridge
 │   │   ├── context.zig        # Re-exports silk.Context
-│   │   └── permissions.zig    # Permission system (broad + granular)
+│   │   └── permissions.zig    # Permission system (broad + granular + path/command scopes)
 │   ├── ipc/
 │   │   ├── ipc.zig            # Message protocol (Command, Event, Response)
-│   │   └── router.zig         # Method → handler dispatch
+│   │   └── router.zig         # Method → handler dispatch + before/after hooks
 │   ├── backend/
-│   │   ├── macos/
-│   │   │   ├── objc.zig       # ObjC runtime helpers
-│   │   │   ├── window.zig     # NSWindow management
-│   │   │   └── webview.zig    # WKWebView + message handler + scheme handler
-│   │   ├── linux/             # (future)
-│   │   └── windows/           # (future)
+│   │   └── macos/
+│   │       ├── objc.zig       # ObjC runtime helpers
+│   │       ├── window.zig     # NSWindow management
+│   │       └── webview.zig    # WKWebView + message handler + scheme handler
 │   ├── plugins/
-│   │   ├── fs.zig             # Filesystem plugin (7 commands)
+│   │   ├── fs.zig             # Filesystem plugin (7 commands + path sandboxing)
 │   │   ├── dialog.zig         # Native file/message dialogs
 │   │   ├── clipboard.zig      # System clipboard
-│   │   ├── shell.zig          # Open URLs, execute commands
+│   │   ├── shell.zig          # Open URLs, execute commands (+ command whitelisting)
 │   │   └── window_plugin.zig  # Window management commands
 │   ├── bridge/
-│   │   └── bridge.js          # JS IPC bridge (injected into webview)
+│   │   └── bridge.js          # JS IPC bridge (injected into webview, pending limit)
 │   └── frontend/
 │       └── index.html         # Built-in demo UI
 ├── cli/
 │   ├── main.zig               # CLI subcommand dispatch
-│   ├── init.zig               # Project scaffolding (TS-only default, --zig opt-in)
-│   └── dev.zig                # Dev server management
-└── sdk/
-    ├── package.json           # @silk/api npm package
-    ├── tsconfig.json
-    └── src/
-        ├── index.ts           # Re-exports
-        ├── ipc.ts             # invoke(), listen()
-        ├── window.ts          # SilkWindow class
-        ├── fs.ts              # Typed filesystem API
-        ├── dialog.ts          # Typed dialog API
-        ├── clipboard.ts       # Typed clipboard API
-        ├── shell.ts           # Typed shell API
-        └── types.ts           # Config & IPC types
+│   ├── init.zig               # Project scaffolding (template interpolation, --zig opt-in)
+│   └── dev.zig                # Dev server (typed JSON config, auto-detect user Zig)
+├── sdk/                       # @silkapp/api TypeScript SDK
+│   ├── package.json           # v0.2.0
+│   ├── tsconfig.json
+│   └── src/
+│       ├── index.ts           # Re-exports (all types + modules)
+│       ├── ipc.ts             # invoke() (with timeout), listen()
+│       ├── window.ts          # SilkWindow class
+│       ├── fs.ts              # Typed filesystem API + readJSON/writeJSON
+│       ├── dialog.ts          # Typed dialog API + confirm()
+│       ├── clipboard.ts       # Typed clipboard API
+│       ├── shell.ts           # ExecResult class (.ok getter), open(), exec()
+│       └── types.ts           # Config & IPC types, defineConfig()
+└── packages/
+    ├── create-silk-app/       # npm create silk-app@latest scaffolder (v0.2.0)
+    │   ├── package.json
+    │   └── bin/create-silk-app.js
+    ├── silkapp-cli/           # @silkapp/cli — JS wrapper + optionalDependencies
+    │   ├── package.json
+    │   └── bin/silk.js
+    ├── silkapp-cli-darwin-arm64/  # Prebuilt ARM64 binaries
+    │   ├── package.json
+    │   └── bin/ (silk + silk-cli, gitignored)
+    └── silkapp-cli-darwin-x64/   # Prebuilt x64 binaries (placeholder)
+        ├── package.json
+        └── bin/ (needs native build or CI)
 ```
 
 ---
@@ -568,7 +632,7 @@ silk/
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │              TypeScript Layer (default)                │  │
 │  │                                                       │  │
-│  │  @silk/api SDK                                        │  │
+│  │  @silkapp/api SDK                                     │  │
 │  │  ├── fs.readFile(), fs.writeFile()                    │  │
 │  │  ├── dialog.open(), dialog.save(), dialog.confirm()   │  │
 │  │  ├── clipboard.readText(), clipboard.writeText()      │  │
