@@ -1,0 +1,12 @@
+.{
+    .name = .silk,
+    .version = "0.0.0",
+    .fingerprint = 0xce0bcba32be3903,
+    .minimum_zig_version = "0.16.0-dev.2261+d6b3dd25a",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

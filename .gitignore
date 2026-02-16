@@ -1,0 +1,18 @@
+# Zig
+zig-out/
+.zig-cache/
+
+# Node
+node_modules/
+dist/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Debug/temp
+FULLSCREEN_ERROR.txt
+*.log

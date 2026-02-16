@@ -1,0 +1,253 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<title>Silk Demo</title>
+		<style>
+			* {
+				margin: 0;
+				padding: 0;
+				box-sizing: border-box;
+			}
+			body {
+				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+				background: #0f0f1a;
+				color: #e0e0e0;
+				padding: 24px;
+				line-height: 1.5;
+			}
+			h1 {
+				font-size: 32px;
+				color: #fff;
+				text-align: center;
+				margin-bottom: 4px;
+			}
+			.subtitle {
+				text-align: center;
+				color: #666;
+				font-size: 14px;
+				margin-bottom: 24px;
+			}
+			.grid {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				gap: 16px;
+				max-width: 960px;
+				margin: 0 auto;
+			}
+			.card {
+				background: #1a1a2e;
+				border-radius: 12px;
+				padding: 20px;
+				border: 1px solid #2a2a3e;
+			}
+			.card h2 {
+				font-size: 16px;
+				color: #e94560;
+				margin-bottom: 12px;
+				display: flex;
+				align-items: center;
+				gap: 8px;
+			}
+			.card h2 .icon {
+				font-size: 18px;
+				width: 24px;
+				text-align: center;
+			}
+			.btn-row {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 6px;
+				margin-bottom: 10px;
+			}
+			button {
+				padding: 6px 14px;
+				background: #16213e;
+				color: #7fdbca;
+				border: 1px solid #2a2a3e;
+				border-radius: 6px;
+				font-size: 12px;
+				font-family: "SF Mono", "Fira Code", monospace;
+				cursor: pointer;
+				transition:
+					background 0.15s,
+					border-color 0.15s;
+			}
+			button:hover {
+				background: #1f2f50;
+				border-color: #e94560;
+			}
+			button:active {
+				background: #e94560;
+				color: #fff;
+			}
+			.output {
+				background: #0f0f1a;
+				border: 1px solid #2a2a3e;
+				border-radius: 8px;
+				padding: 10px 14px;
+				font-family: "SF Mono", "Fira Code", monospace;
+				font-size: 12px;
+				color: #7fdbca;
+				min-height: 36px;
+				max-height: 120px;
+				overflow-y: auto;
+				word-break: break-all;
+				white-space: pre-wrap;
+			}
+			.output.error {
+				color: #e94560;
+			}
+			.full-width {
+				grid-column: 1 / -1;
+			}
+			input[type="text"] {
+				padding: 6px 10px;
+				background: #0f0f1a;
+				border: 1px solid #2a2a3e;
+				border-radius: 6px;
+				color: #e0e0e0;
+				font-family: "SF Mono", monospace;
+				font-size: 12px;
+				width: 100%;
+				margin-bottom: 8px;
+			}
+			input[type="text"]:focus {
+				outline: none;
+				border-color: #e94560;
+			}
+			label {
+				font-size: 11px;
+				color: #888;
+				display: block;
+				margin-bottom: 4px;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>Silk</h1>
+		<p class="subtitle">Desktop apps with TypeScript + Zig</p>
+
+		<div class="grid">
+			<!-- IPC / Core -->
+			<div class="card">
+				<h2><span class="icon">&gt;</span> IPC</h2>
+				<div class="btn-row">
+					<button onclick="run('ipc', () => __silk.invoke('silk:ping'))">ping</button>
+					<button onclick="run('ipc', () => __silk.invoke('nonexistent:method'))">unknown method</button>
+				</div>
+				<div class="output" id="out-ipc"></div>
+			</div>
+
+			<!-- Clipboard -->
+			<div class="card">
+				<h2><span class="icon">&para;</span> Clipboard</h2>
+				<div class="btn-row">
+					<button onclick="run('clip', () => __silk.invoke('clipboard:readText'))">read</button>
+					<button onclick="run('clip', () => __silk.invoke('clipboard:writeText', { text: 'Hello from Silk!' }))">write "Hello from Silk!"</button>
+				</div>
+				<div class="output" id="out-clip"></div>
+			</div>
+
+			<!-- Window -->
+			<div class="card">
+				<h2><span class="icon">#</span> Window</h2>
+				<div class="btn-row">
+					<button onclick="run('win', () => __silk.invoke('window:setTitle', { title: 'Silk - ' + Date.now() }))">setTitle</button>
+					<button onclick="run('win', () => __silk.invoke('window:setSize', { width: 800, height: 600 }))">800x600</button>
+					<button onclick="run('win', () => __silk.invoke('window:setSize', { width: 1200, height: 900 }))">1200x900</button>
+					<button onclick="run('win', () => __silk.invoke('window:center'))">center</button>
+					<button onclick="run('win', () => __silk.invoke('window:isVisible'))">isVisible</button>
+					<button onclick="run('win', () => __silk.invoke('window:setFullscreen'))">fullscreen</button>
+				</div>
+				<div class="output" id="out-win"></div>
+			</div>
+
+			<!-- Dialog -->
+			<div class="card">
+				<h2><span class="icon">?</span> Dialog</h2>
+				<div class="btn-row">
+					<button onclick="run('dlg', () => __silk.invoke('dialog:open', { title: 'Pick a file' }))">open file</button>
+					<button onclick="run('dlg', () => __silk.invoke('dialog:open', { title: 'Pick a folder', directory: true }))">open dir</button>
+					<button onclick="run('dlg', () => __silk.invoke('dialog:save', { title: 'Save', defaultName: 'test.txt' }))">save</button>
+					<button onclick="run('dlg', () => __silk.invoke('dialog:message', { title: 'Hello', message: 'Silk dialog works!' }))">message</button>
+				</div>
+				<div class="output" id="out-dlg"></div>
+			</div>
+
+			<!-- Shell -->
+			<div class="card">
+				<h2><span class="icon">$</span> Shell</h2>
+				<label for="shell-cmd">Command</label>
+				<input type="text" id="shell-cmd" value="echo" placeholder="command" />
+				<label for="shell-args">Args (comma-separated)</label>
+				<input type="text" id="shell-args" value="hello from silk" placeholder="arg1, arg2" />
+				<div class="btn-row">
+					<button onclick="runExec()">exec</button>
+					<button onclick="run('sh', () => __silk.invoke('shell:open', { target: 'https://github.com' }))">open github.com</button>
+				</div>
+				<div class="output" id="out-sh"></div>
+			</div>
+
+			<!-- Filesystem -->
+			<div class="card">
+				<h2><span class="icon">/</span> Filesystem</h2>
+				<label for="fs-path">Path</label>
+				<input type="text" id="fs-path" value="/tmp/silk-test.txt" placeholder="/path/to/file" />
+				<div class="btn-row">
+					<button
+						onclick="
+							run('fs', () => __silk.invoke('fs:write', { path: gv('fs-path'), contents: 'Written by Silk at ' + new Date().toISOString() }))
+						"
+					>
+						write
+					</button>
+					<button onclick="run('fs', () => __silk.invoke('fs:read', { path: gv('fs-path') }))">read</button>
+					<button onclick="run('fs', () => __silk.invoke('fs:exists', { path: gv('fs-path') }))">exists</button>
+					<button onclick="run('fs', () => __silk.invoke('fs:stat', { path: gv('fs-path') }))">stat</button>
+					<button onclick="run('fs', () => __silk.invoke('fs:remove', { path: gv('fs-path') }))">remove</button>
+					<button onclick="run('fs', () => __silk.invoke('fs:readDir', { path: '/tmp' }))">readDir /tmp</button>
+					<button onclick="run('fs', () => __silk.invoke('fs:mkdir', { path: '/tmp/silk-demo-dir', recursive: true }))">mkdir</button>
+				</div>
+				<div class="output" id="out-fs"></div>
+			</div>
+		</div>
+
+		<script>
+			var __silk = window.__silk;
+
+			function gv(id) {
+				return document.getElementById(id).value;
+			}
+
+			function setOutput(id, text, isError) {
+				var el = document.getElementById("out-" + id);
+				el.textContent = text;
+				el.className = isError ? "output error" : "output";
+			}
+
+			async function run(id, fn) {
+				setOutput(id, "...", false);
+				try {
+					var result = await fn();
+					setOutput(id, JSON.stringify(result, null, 2), false);
+				} catch (e) {
+					setOutput(id, "Error [" + (e.code || "?") + "]: " + e.message, true);
+				}
+			}
+
+			function runExec() {
+				var cmd = gv("shell-cmd");
+				var argsStr = gv("shell-args").trim();
+				var args = argsStr
+					? argsStr.split(",").map(function (s) {
+							return s.trim();
+						})
+					: [];
+				run("sh", function () {
+					return __silk.invoke("shell:exec", { command: cmd, args: args });
+				});
+			}
+		</script>
+	</body>
+</html>
