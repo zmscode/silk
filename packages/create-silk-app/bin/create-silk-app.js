@@ -135,7 +135,7 @@ function packageJson(name) {
 					preview: "vite preview",
 				},
 				dependencies: {
-					"@silk/api": "^0.1.0",
+					"@silkapp/api": "^0.1.0",
 				},
 				devDependencies: {
 					typescript: "^5.7.0",
@@ -200,7 +200,7 @@ function indexHtml(title) {
 `;
 }
 
-const mainTs = `import { invoke } from "@silk/api";
+const mainTs = `import { invoke } from "@silkapp/api";
 import "./style.css";
 
 const btn = document.getElementById("ping-btn")!;

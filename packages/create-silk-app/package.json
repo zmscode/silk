@@ -1,6 +1,6 @@
 {
 	"name": "create-silk-app",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Scaffold a new Silk desktop application",
 	"type": "module",
 	"bin": {
