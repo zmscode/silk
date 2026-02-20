@@ -1,0 +1,25 @@
+{
+  "window": {
+    "title": "Silk",
+    "width": 1200,
+    "height": 800
+  },
+  "permissions": {
+    "allow_commands": [
+      "silk:ping",
+      "silk:appInfo",
+      "silk:app/version",
+      "silk:app/platform",
+      "silk:app/quit",
+      "silk:window/getFrame",
+      "silk:window/setTitle",
+      "silk:window/setSize",
+      "silk:window/show",
+      "silk:window/hide",
+      "silk:window/center",
+      "silk:fs/readText",
+      "silk:fs/writeText",
+      "silk:fs/listDir"
+    ]
+  }
+}

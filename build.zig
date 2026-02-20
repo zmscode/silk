@@ -4,101 +4,102 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSmall });
 
-    // ─── Shared Modules ─────────────────────────────────────────────────
+    const os = target.result.os.tag;
 
-    const objc_mod = b.addModule("objc", .{
-        .root_source_file = b.path("src/backend/macos/objc.zig"),
-        .target = target,
-    });
+    // ── Dependencies ──
 
-    // Shared "silk" module — defines Context, HandlerFn.
-    // Both the app and user commands import this so types match.
-    const silk_mod = b.addModule("silk", .{
-        .root_source_file = b.path("lib/silk.zig"),
-        .target = target,
-    });
+    const sriracha_dep = b.dependency("sriracha", .{ .target = target });
+    const sriracha_mod = sriracha_dep.module("sriracha");
 
-    // ─── User Commands (opt-in) ─────────────────────────────────────────
+    // ── silk runtime binary ──
 
-    const user_zig_path = b.option([]const u8, "user-zig", "Path to custom Zig commands (e.g. src-silk/main.zig)");
-
-    const user_commands_mod = b.addModule("user_commands", .{
-        .root_source_file = if (user_zig_path) |p| .{ .cwd_relative = p } else b.path("stubs/user_stub.zig"),
-        .target = target,
-        .imports = &.{
-            .{ .name = "silk", .module = silk_mod },
-        },
-    });
-
-    // ─── App Target ─────────────────────────────────────────────────────
-
-    const root_module = b.createModule(.{
+    const silk_mod = b.createModule(.{
         .root_source_file = b.path("src/silk.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "objc", .module = objc_mod },
-            .{ .name = "silk", .module = silk_mod },
-            .{ .name = "user_commands", .module = user_commands_mod },
+            .{ .name = "sriracha", .module = sriracha_mod },
         },
     });
 
-    root_module.linkFramework("AppKit", .{});
-    root_module.linkFramework("WebKit", .{});
-    root_module.linkSystemLibrary("objc", .{});
-
-    const exe = b.addExecutable(.{
-        .name = "silk",
-        .root_module = root_module,
-    });
-
-    b.installArtifact(exe);
-
-    const run_step = b.step("run", "Run the app");
-
-    const run_cmd = b.addRunArtifact(exe);
-    run_step.dependOn(&run_cmd.step);
-
-    run_cmd.step.dependOn(b.getInstallStep());
-
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
+    if (os == .macos) {
+        if (sriracha_mod.import_table.get("objc")) |objc_mod| {
+            silk_mod.addImport("objc", objc_mod);
+        }
     }
 
-    // ─── CLI Target (no AppKit/WebKit) ────────────────────────────────────
-
-    const cli_module = b.createModule(.{
-        .root_source_file = b.path("cli/main.zig"),
-        .target = target,
-        .optimize = optimize,
+    const silk_exe = b.addExecutable(.{
+        .name = "silk",
+        .root_module = silk_mod,
     });
+
+    if (os == .windows) {
+        silk_exe.subsystem = .windows;
+    }
+
+    b.installArtifact(silk_exe);
+
+    // ── run step (macOS: .app bundle; others: direct) ──
+
+    const run_step = b.step("run", "Run silk");
+
+    if (os == .macos) {
+        const wf = b.addWriteFiles();
+        const plist = wf.add("Info.plist",
+            \\<?xml version="1.0" encoding="UTF-8"?>
+            \\<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            \\<plist version="1.0">
+            \\<dict>
+            \\    <key>CFBundleName</key>
+            \\    <string>Silk</string>
+            \\    <key>CFBundleIdentifier</key>
+            \\    <string>com.silk.app</string>
+            \\    <key>CFBundleExecutable</key>
+            \\    <string>silk</string>
+            \\    <key>CFBundlePackageType</key>
+            \\    <string>APPL</string>
+            \\    <key>CFBundleVersion</key>
+            \\    <string>0.1.0</string>
+            \\    <key>NSHighResolutionCapable</key>
+            \\    <true/>
+            \\</dict>
+            \\</plist>
+            \\
+        );
+        const install_plist = b.addInstallFile(plist, "Silk.app/Contents/Info.plist");
+        const install_bin = b.addInstallFile(silk_exe.getEmittedBin(), "Silk.app/Contents/MacOS/silk");
+
+        // Ensure plain `zig build` also materializes Silk.app.
+        const install_step = b.getInstallStep();
+        install_step.dependOn(&install_plist.step);
+        install_step.dependOn(&install_bin.step);
+
+        const bundle_step = b.step("bundle", "Create Silk.app bundle");
+        bundle_step.dependOn(&install_plist.step);
+        bundle_step.dependOn(&install_bin.step);
+
+        const bundle_path = b.getInstallPath(.prefix, "Silk.app");
+        const run_cmd = b.addSystemCommand(&.{ "open", "-W", bundle_path, "--args" });
+        if (b.args) |args| run_cmd.addArgs(args);
+        run_cmd.step.dependOn(&install_plist.step);
+        run_cmd.step.dependOn(&install_bin.step);
+        run_step.dependOn(&run_cmd.step);
+    } else {
+        const run_cmd = b.addRunArtifact(silk_exe);
+        if (b.args) |args| run_cmd.addArgs(args);
+        run_step.dependOn(&run_cmd.step);
+    }
+
+    // ── silk-cli binary ──
 
     const cli_exe = b.addExecutable(.{
         .name = "silk-cli",
-        .root_module = cli_module,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("cli/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     b.installArtifact(cli_exe);
-
-    const cli_run_step = b.step("cli", "Run the CLI");
-
-    const cli_run_cmd = b.addRunArtifact(cli_exe);
-    cli_run_step.dependOn(&cli_run_cmd.step);
-
-    cli_run_cmd.step.dependOn(b.getInstallStep());
-
-    if (b.args) |args| {
-        cli_run_cmd.addArgs(args);
-    }
-
-    // ─── Tests ──────────────────────────────────────────────────────────────
-
-    const exe_tests = b.addTest(.{
-        .root_module = exe.root_module,
-    });
-
-    const run_exe_tests = b.addRunArtifact(exe_tests);
-
-    const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&run_exe_tests.step);
 }

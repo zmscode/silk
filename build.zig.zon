@@ -1,12 +1,20 @@
 .{
     .name = .silk,
-    .version = "0.0.0",
-    .fingerprint = 0xce0bcba32be3903,
+    .version = "0.1.0",
+    .fingerprint = 0xce0bcbad834a60a,
     .minimum_zig_version = "0.16.0-dev.2261+d6b3dd25a",
-    .dependencies = .{},
+    .dependencies = .{
+        .sriracha = .{
+            .url = "git+https://github.com/zmscode/sriracha#0cfe45b3e0f776c7914a5d9082bea15951035774",
+            .hash = "sriracha-0.1.0-Q7brPHGFBABWcH-xJLmh-ruJmwARZSDGlCsiEgqPUbab",
+        },
+    },
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
+        "cli",
+        "lib",
+        "stubs",
     },
 }

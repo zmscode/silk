@@ -1,138 +1,148 @@
-//! Silk — Application Entry Point
-//!
-//! Bootstraps NSApplication, registers an AppDelegate, and starts the
-//! main event loop. The AppDelegate creates a window + webview on launch.
-
 const std = @import("std");
-const objc = @import("objc");
-const macos_window = @import("backend/macos/window.zig");
-const macos_webview = @import("backend/macos/webview.zig");
-const app_mod = @import("core/app.zig");
+const sriracha = @import("sriracha");
 
-const AppState = app_mod.AppState;
+const protocol = @import("ipc/message.zig");
+const ipc = @import("ipc/router.zig");
+const config_mod = @import("config.zig");
+const permissions_mod = @import("permissions.zig");
+const plugins = @import("plugins/register.zig");
 
-// Static app state — lives for the process lifetime.
-var app_state: AppState = undefined;
-var dev_url: ?[]const u8 = null;
-var window_title: []const u8 = "Silk";
+const bridge_js = @embedFile("ipc/bridge.js");
 
-// ─── Main ───────────────────────────────────────────────────────────────
+var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
+var allocator: std.mem.Allocator = undefined;
 
-pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
+var window: sriracha.Window = .{};
+var webview: sriracha.WebView = .{};
 
-    // Parse CLI args (e.g. --url http://localhost:5173 --title "My App")
-    var iter = std.process.Args.Iterator.init(init.minimal.args);
-    _ = iter.next(); // skip argv[0]
-    while (iter.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--url")) {
-            dev_url = iter.next();
-        } else if (std.mem.eql(u8, arg, "--title")) {
-            window_title = iter.next() orelse "Silk";
-        }
+var router: ipc.Router = undefined;
+var permissions: permissions_mod.Permissions = undefined;
+var ctx: ipc.Context = undefined;
+
+var eval_queue: std.ArrayList([]u8) = .empty;
+var eval_flush_scheduled = false;
+
+pub fn main(_: std.process.Init) !void {
+    allocator = gpa_state.allocator();
+
+    var loaded_cfg = try config_mod.loadFromFile(allocator, "silk.config.json");
+    defer loaded_cfg.deinit(allocator);
+
+    permissions = try permissions_mod.Permissions.initDefault(allocator);
+    defer permissions.deinit();
+    if (loaded_cfg.cfg.allowed_commands.len > 0) {
+        try permissions.replaceAllowlist(loaded_cfg.cfg.allowed_commands);
     }
 
-    app_state = AppState.init(allocator, init.io);
-    app_state.setup();
-    app_mod.g_app = &app_state;
+    router = ipc.Router.init(allocator);
+    defer router.deinit();
 
-    // Initialise NSApplication and set activation policy to regular (dock icon + menu bar)
-    const ns_app = macos_window.initApp();
+    try plugins.registerAll(&router);
 
-    // Register and attach the AppDelegate
-    const delegate = createAppDelegate();
-    objc.msgSend_id_void(ns_app, objc.sel("setDelegate:"), delegate);
+    ctx = .{
+        .allocator = allocator,
+        .webview = @ptrCast(&webview),
+        .window = @ptrCast(&window),
+        .permissions = &permissions,
+    };
 
-    // Activate the app (bring to front)
-    macos_window.activateApp(ns_app);
-
-    // Run the main event loop (blocks until termination)
-    macos_window.runApp(ns_app);
-}
-
-// ─── AppDelegate ────────────────────────────────────────────────────────
-
-var delegate_class_registered: bool = false;
-
-fn createAppDelegate() objc.id {
-    if (!delegate_class_registered) {
-        const cls = objc.allocateClassPair("NSObject", "SilkAppDelegate") orelse
-            @panic("Failed to create SilkAppDelegate class");
-
-        _ = objc.addMethod(
-            cls,
-            objc.sel("applicationDidFinishLaunching:"),
-            @ptrCast(&appDidFinishLaunching),
-            "v@:@",
-        );
-
-        _ = objc.addProtocol(cls, "NSApplicationDelegate");
-        objc.registerClassPair(cls);
-        delegate_class_registered = true;
+    eval_queue = .empty;
+    defer {
+        for (eval_queue.items) |script| allocator.free(script);
+        eval_queue.deinit(allocator);
     }
 
-    return objc.msgSend(
-        objc.msgSend(objc.getClass("SilkAppDelegate"), objc.sel("alloc")),
-        objc.sel("init"),
-    );
-}
+    sriracha.app.init(.{ .on_ready = onReady });
 
-fn appDidFinishLaunching(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    const allocator = app_state.allocator;
-
-    // Create the main window
-    app_state.window = macos_window.Window.init(.{
-        .title = window_title,
-        .width = 1024,
-        .height = 768,
+    window.create(.{
+        .title = loaded_cfg.cfg.title,
+        .width = loaded_cfg.cfg.width,
+        .height = loaded_cfg.cfg.height,
+        .callbacks = .{ .on_close = onClose },
     });
-    var win = &app_state.window.?;
+    window.center();
+    window.show();
 
-    // Set window delegate for lifecycle callbacks
-    macos_window.setWindowDelegate(win.ns_window);
+    webview.create(.{
+        .handler_name = "silk",
+        .on_script_message = onScriptMessage,
+    });
+    webview.attachToWindow(&window);
+    webview.loadHTML(
+        \\<!DOCTYPE html>
+        \\<html>
+        \\<head><meta charset="utf-8"><title>Silk</title></head>
+        \\<body style="margin:0;padding:40px;font-family:-apple-system,sans-serif;background:#0f0f0f;color:#eee;">
+        \\  <h1 style="color:#f97316;">Silk</h1>
+        \\  <p>Command API scaffold is live.</p>
+        \\  <pre id="out" style="padding:12px;background:#1a1a1a;border-radius:8px;color:#cbd5e1;">waiting...</pre>
+        \\  <script>
+        \\    const out = document.getElementById('out');
+        \\    function waitForSilk() {
+        \\      if (!window.__silk) {
+        \\        setTimeout(waitForSilk, 16);
+        \\        return;
+        \\      }
+        \\      Promise.all([
+        \\        window.__silk.invoke('silk:ping'),
+        \\        window.__silk.invoke('silk:appInfo')
+        \\      ])
+        \\        .then(([pong, info]) => {
+        \\          out.textContent = JSON.stringify({ pong, info }, null, 2);
+        \\        })
+        \\        .catch((err) => {
+        \\          out.textContent = `error: ${err.message}`;
+        \\        });
+        \\    }
+        \\    waitForSilk();
+        \\  </script>
+        \\</body>
+        \\</html>
+    , null);
 
-    // Create the webview with IPC message handling and JS bridge
-    app_state.webview = macos_webview.WebView.init(allocator, .{
-        .debug = true,
-        .message_callback = &app_mod.handleMessage,
-        .bridge_script = @embedFile("bridge/bridge.js"),
-    }) catch {
-        std.log.err("Failed to create webview", .{});
+    sriracha.app.run();
+}
+
+fn onReady() void {
+    webview.evaluateJavaScript(bridge_js);
+}
+
+fn onClose(_: *sriracha.Window) void {
+    sriracha.app.terminate();
+}
+
+fn onScriptMessage(_: *sriracha.WebView, message: []const u8) void {
+    const parsed_invoke = protocol.parseInvoke(allocator, message) catch |err| {
+        std.debug.print("[silk] invoke parse error: {s}\n", .{@errorName(err)});
         return;
     };
-    const wv = &app_state.webview.?;
+    defer parsed_invoke.parsed.deinit();
 
-    // Embed the webview in the window
-    win.setContentView(wv.view());
+    const js = router.dispatch(&ctx, parsed_invoke.req) catch |err| {
+        std.debug.print("[silk] invoke dispatch error: {s}\n", .{@errorName(err)});
+        return;
+    };
 
-    // Load dev URL or built-in demo page
-    if (dev_url) |url| {
-        wv.loadURL(url);
-    } else {
-        wv.loadHTML(welcome_html);
+    enqueueEval(js) catch |err| {
+        allocator.free(js);
+        std.debug.print("[silk] schedule eval error: {s}\n", .{@errorName(err)});
+    };
+}
+
+fn enqueueEval(js: []u8) !void {
+    try eval_queue.append(allocator, js);
+    if (eval_flush_scheduled) return;
+
+    eval_flush_scheduled = true;
+    sriracha.scheduleCallback(0, flushEvalQueue);
+}
+
+fn flushEvalQueue(_: ?*anyopaque) callconv(.c) void {
+    eval_flush_scheduled = false;
+
+    for (eval_queue.items) |script| {
+        webview.evaluateJavaScript(script);
+        allocator.free(script);
     }
-
-    // Show the window
-    win.show();
+    eval_queue.clearRetainingCapacity();
 }
-
-// ─── Window Delegate Callbacks ──────────────────────────────────────────
-//
-// These are called by the SilkWindowDelegate registered in window.zig.
-
-pub fn windowShouldClose() bool {
-    // Terminate the app when the main window closes
-    const ns_app = objc.msgSend(objc.getClass("NSApplication"), objc.sel("sharedApplication"));
-    objc.msgSend_id_void(ns_app, objc.sel("terminate:"), null);
-    return true;
-}
-
-pub fn windowDidBecomeKey() void {}
-
-pub fn windowDidResignKey() void {}
-
-pub fn windowDidResize() void {}
-
-// ─── Built-in Demo HTML ─────────────────────────────────────────────────
-
-const welcome_html = @embedFile("frontend/index.html");

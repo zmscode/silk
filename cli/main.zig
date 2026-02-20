@@ -1,71 +1,34 @@
-//! Silk CLI — Entry Point
-//!
-//! Subcommand dispatch for `silk init`, `silk dev`, `silk help`.
-
 const std = @import("std");
-const init_cmd = @import("init.zig");
-const dev_cmd = @import("dev.zig");
 
-pub fn main(proc: std.process.Init) !void {
-    const io = proc.io;
-    const allocator = proc.gpa;
+pub fn main(init: std.process.Init) !void {
+    var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, init.gpa);
+    _ = args.next(); // skip binary name
 
-    // Collect args from iterator into a slice
-    var args_list: std.ArrayList([]const u8) = .{};
-    defer args_list.deinit(allocator);
-    var iter = std.process.Args.Iterator.init(proc.minimal.args);
-    while (iter.next()) |arg| {
-        try args_list.append(allocator, arg);
-    }
-    const args = args_list.items;
-
-    // Skip argv[0] (the executable name)
-    if (args.len < 2) {
-        printUsage(io);
+    const subcmd = args.next() orelse {
+        printUsage();
         return;
-    }
+    };
 
-    const command = args[1];
-
-    if (std.mem.eql(u8, command, "init")) {
-        try init_cmd.run(allocator, io, args[2..]);
-    } else if (std.mem.eql(u8, command, "dev")) {
-        try dev_cmd.run(allocator, io);
-    } else if (std.mem.eql(u8, command, "help") or std.mem.eql(u8, command, "--help") or std.mem.eql(u8, command, "-h")) {
-        printUsage(io);
-    } else if (std.mem.eql(u8, command, "--version") or std.mem.eql(u8, command, "-v")) {
-        printOut(io, "silk 0.1.0\n");
+    if (std.mem.eql(u8, subcmd, "init")) {
+        std.debug.print("silk init — coming in Phase 7\n", .{});
+    } else if (std.mem.eql(u8, subcmd, "dev")) {
+        std.debug.print("silk dev — coming in Phase 7\n", .{});
+    } else if (std.mem.eql(u8, subcmd, "build")) {
+        std.debug.print("silk build — coming in Phase 7\n", .{});
     } else {
-        printErr(io, "Unknown command: ");
-        printErr(io, command);
-        printErr(io, "\n\n");
-        printUsage(io);
+        std.debug.print("unknown command: {s}\n\n", .{subcmd});
+        printUsage();
     }
 }
 
-fn printUsage(io: std.Io) void {
-    const usage =
-        \\Usage: silk <command> [options]
+fn printUsage() void {
+    std.debug.print(
+        \\silk-cli
         \\
-        \\Commands:
-        \\  init <name>       Create a new Silk project
-        \\  dev               Start development server
-        \\  help              Show this help message
+        \\Usage:
+        \\  silk init [name] [--zig]   Scaffold a new Silk project
+        \\  silk dev                   Start dev server
+        \\  silk build                 Build for distribution
         \\
-        \\Options:
-        \\  --version, -v     Show version
-        \\  --help, -h        Show help
-        \\
-    ;
-    printOut(io, usage);
-}
-
-fn printOut(io: std.Io, msg: []const u8) void {
-    const stdout = std.Io.File.stdout();
-    stdout.writeStreamingAll(io, msg) catch {};
-}
-
-fn printErr(io: std.Io, msg: []const u8) void {
-    const stderr = std.Io.File.stderr();
-    stderr.writeStreamingAll(io, msg) catch {};
+    , .{});
 }
