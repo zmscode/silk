@@ -125,6 +125,9 @@ fn onReady() void {
 }
 
 fn onClose(_: *sriracha.Window) void {
+    if (mode_a_bridge) |*bridge| {
+        bridge.deinit();
+    }
     sriracha.app.terminate();
 }
 

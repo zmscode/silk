@@ -9,6 +9,7 @@ pub const ModeAConfig = struct {
 pub const Bridge = struct {
     allocator: std.mem.Allocator,
     argv: []const []const u8,
+    child: ?std.process.Child = null,
 
     pub fn init(allocator: std.mem.Allocator, cfg: ModeAConfig) !Bridge {
         if (!cfg.enabled) return error.ModeADisabled;
@@ -16,10 +17,21 @@ pub const Bridge = struct {
         return .{
             .allocator = allocator,
             .argv = cfg.argv,
+            .child = null,
         };
     }
 
+    pub fn deinit(self: *Bridge) void {
+        const io = std.Io.Threaded.global_single_threaded.ioBasic();
+        if (self.child) |*child| {
+            child.kill(io);
+            self.child = null;
+        }
+    }
+
     pub fn invoke(self: *Bridge, req: message.InvokeRequest) !std.json.Value {
+        try self.ensureStarted();
+
         const payload = try std.json.Stringify.valueAlloc(
             self.allocator,
             std.json.Value{ .object = try buildRequest(self.allocator, req) },
@@ -28,32 +40,40 @@ pub const Bridge = struct {
         defer self.allocator.free(payload);
 
         const io = std.Io.Threaded.global_single_threaded.ioBasic();
-        var child = try std.process.spawn(io, .{
+        const child = &(self.child orelse return error.TsHostUnavailable);
+
+        try child.stdin.?.writeStreamingAll(io, payload);
+        try child.stdin.?.writeStreamingAll(io, "\n");
+
+        const read_buf = try self.allocator.alloc(u8, 2 * 1024 * 1024);
+        defer self.allocator.free(read_buf);
+
+        var reader = child.stdout.?.reader(io, read_buf);
+        const line = reader.interface.takeDelimiterExclusive('\n') catch |err| switch (err) {
+            error.EndOfStream => {
+                self.child = null;
+                return error.TsHostClosedStream;
+            },
+            else => return err,
+        };
+
+        return self.parseResponse(line);
+    }
+
+    fn ensureStarted(self: *Bridge) !void {
+        if (self.child != null) return;
+
+        const io = std.Io.Threaded.global_single_threaded.ioBasic();
+        self.child = try std.process.spawn(io, .{
             .argv = self.argv,
             .stdin = .pipe,
             .stdout = .pipe,
             .stderr = .pipe,
         });
-        defer child.kill(io);
+    }
 
-        try child.stdin.?.writeStreamingAll(io, payload);
-        try child.stdin.?.writeStreamingAll(io, "\n");
-        child.stdin.?.close(io);
-        child.stdin = null;
-
-        var stdout: std.ArrayList(u8) = .empty;
-        defer stdout.deinit(self.allocator);
-        var stderr: std.ArrayList(u8) = .empty;
-        defer stderr.deinit(self.allocator);
-        try child.collectOutput(self.allocator, &stdout, &stderr, 2 * 1024 * 1024);
-
-        const term = try child.wait(io);
-        switch (term) {
-            .exited => |code| if (code != 0) return error.TsHostNonZeroExit,
-            else => return error.TsHostTerminated,
-        }
-
-        const trimmed = std.mem.trim(u8, stdout.items, " \r\n\t");
+    fn parseResponse(self: *Bridge, raw: []const u8) !std.json.Value {
+        const trimmed = std.mem.trim(u8, raw, " \r\n\t");
         if (trimmed.len == 0) return error.EmptyHostResponse;
 
         const parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, trimmed, .{});
