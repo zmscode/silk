@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const sriracha = @import("sriracha");
 const silk_api = @import("silk");
@@ -106,6 +107,46 @@ pub fn main(_: std.process.Init) !void {
         .on_script_message = onScriptMessage,
     });
     webview.attachToWindow(&window);
+    loadFrontend(loaded_cfg.cfg.frontend) catch |err| {
+        std.debug.print("[silk] frontend load failed: {s}; falling back to default HTML\n", .{@errorName(err)});
+        loadDefaultHtml();
+    };
+
+    sriracha.app.run();
+}
+
+fn loadFrontend(frontend: config_mod.FrontendConfig) !void {
+    if (frontend.dev_url) |url| {
+        webview.loadURL(url);
+        return;
+    }
+
+    if (frontend.dist_entry) |entry| {
+        const io = std.Io.Threaded.global_single_threaded.ioBasic();
+        const abs_path = try std.Io.Dir.cwd().realPathFileAlloc(io, entry, allocator);
+        defer allocator.free(abs_path);
+        const file_url = try fileUrlFromAbsolutePath(abs_path);
+        defer allocator.free(file_url);
+        webview.loadURL(file_url);
+        return;
+    }
+
+    loadDefaultHtml();
+}
+
+fn fileUrlFromAbsolutePath(abs_path: []const u8) ![]u8 {
+    if (builtin.os.tag == .windows) {
+        const normalized = try allocator.dupe(u8, abs_path);
+        defer allocator.free(normalized);
+        for (normalized) |*ch| {
+            if (ch.* == '\\') ch.* = '/';
+        }
+        return std.fmt.allocPrint(allocator, "file:///{s}", .{normalized});
+    }
+    return std.fmt.allocPrint(allocator, "file://{s}", .{abs_path});
+}
+
+fn loadDefaultHtml() void {
     webview.loadHTML(
         \\<!DOCTYPE html>
         \\<html>
@@ -137,8 +178,6 @@ pub fn main(_: std.process.Init) !void {
         \\</body>
         \\</html>
     , null);
-
-    sriracha.app.run();
 }
 
 fn onReady() void {

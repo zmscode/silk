@@ -6,6 +6,11 @@ pub const WindowConfig = struct {
     height: i32 = 800,
 };
 
+pub const FrontendConfig = struct {
+    dev_url: ?[]const u8 = null,
+    dist_entry: ?[]const u8 = null,
+};
+
 pub const PermissionsConfig = struct {
     allow_commands: []const []const u8 = &.{},
     deny_commands: []const []const u8 = &.{},
@@ -21,6 +26,7 @@ pub const ModeAConfig = struct {
 
 pub const AppConfig = struct {
     window: WindowConfig = .{},
+    frontend: FrontendConfig = .{},
     permissions: PermissionsConfig = .{},
     mode_a: ModeAConfig = .{},
 };
@@ -80,6 +86,27 @@ pub fn loadFromFile(allocator: std.mem.Allocator, path: []const u8) !LoadedConfi
         }
         if (win_obj.get("height")) |h_val| {
             loaded.cfg.window.height = try parseI32(h_val);
+        }
+    }
+
+    if (obj.get("frontend")) |frontend_val| {
+        if (frontend_val != .object) return error.InvalidFrontendConfig;
+        const frontend_obj = frontend_val.object;
+
+        if (frontend_obj.get("dev_url")) |dev_url_val| {
+            loaded.cfg.frontend.dev_url = switch (dev_url_val) {
+                .null => null,
+                .string => |s| s,
+                else => return error.InvalidFrontendDevUrl,
+            };
+        }
+
+        if (frontend_obj.get("dist_entry")) |dist_entry_val| {
+            loaded.cfg.frontend.dist_entry = switch (dist_entry_val) {
+                .null => null,
+                .string => |s| s,
+                else => return error.InvalidFrontendDistEntry,
+            };
         }
     }
 

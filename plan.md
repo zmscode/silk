@@ -13,10 +13,11 @@ IPC model is Tauri-style command invocation (`invoke(cmd, args)`), not JSON-RPC.
   - JS bridge (`window.__silk.invoke`)
   - Zig parser/dispatcher
   - deferred JS callback dispatch via `sriracha.scheduleCallback`
-- Baseline permissions allowlist exists.
+- Config-driven command + scope permissions are active.
 - Built-in bootstrap commands exist: `silk:ping`, `silk:appInfo`.
+- Mode A (external TS host) and Mode B (compile-in user Zig module) are both implemented.
 - macOS app bundle generation is connected to `zig build`.
-- CLI (`silk-cli`) remains scaffold/stub only.
+- CLI Phase 7 baseline is implemented (`init`, `dev`, `build`).
 
 ---
 
@@ -80,7 +81,7 @@ Error response:
 | 4 | Config + capability permissions | ✅ Complete |
 | 5 | Mode A TS command host | ✅ Complete |
 | 6 | Mode B user Zig compile-in | ✅ Complete |
-| 7 | CLI productization | ⬜ Pending |
+| 7 | CLI productization | ✅ Complete |
 | 8 | TypeScript SDK | ⬜ Pending |
 | 9 | Cross-platform hardening | ⬜ Pending |
 | 10 | Packaging + distribution | ⬜ Pending |
@@ -288,6 +289,24 @@ Error response:
 - Build orchestration (assets, bundles, outputs).
 - Consistent user-facing binary naming (`silk` command UX).
 
+**Implemented**
+- `silk init [name] [--zig] [--force]`
+  - Scaffolds a TypeScript + Vite frontend, `silk.config.json`, and bridge typings.
+  - Template assets are embedded in CLI via `@embedFile` (`cli/templates/*`).
+  - Optional `--zig` emits `user_commands.zig` scaffold.
+- `silk dev [--no-frontend] [args...]`
+  - Detects package manager (`pnpm`/`yarn`/`bun`/`npm`), auto-installs dependencies when needed.
+  - Starts frontend dev server and Silk runtime together.
+  - Runtime resolution order: `SILK_RUNTIME_BIN` -> `zig-out/bin/silk` -> `PATH`.
+- `silk build`
+  - Runs frontend build script when `package.json` exists.
+  - Runs runtime release build (`zig build --release=small`) when `build.zig` exists.
+- Runtime/frontend integration update:
+  - New config block:
+    - `frontend.dev_url`
+    - `frontend.dist_entry`
+  - Runtime now loads `dev_url` in dev mode or `dist_entry` file URL for built assets.
+
 **Acceptance criteria**
 - New project can be initialized and run with one command.
 - Build command produces runnable release output.
@@ -347,35 +366,71 @@ Error response:
 
 ### P0 (Do next)
 
+- Add origin-aware IPC sender validation and per-window/webview command policy checks.
 - Add IPC timeout + cancellation for pending command callbacks.
-- Add command payload size limits and throttling/rate controls.
-- Introduce structured error codes (`code`, `message`, `details`) instead of string-only errors.
-- Add integration tests for invoke success/error/permission-denied flows.
+- Introduce structured error objects (`code`, `message`, `details`) instead of string-only errors.
+- Add integration tests for invoke success/error/permission-denied and malformed-payload flows.
+- Add strict payload limits (request/response bytes) and rate limiting per webview.
 
 ### P1 (High-value)
 
-- Implement config-driven capability model (replace hardcoded allowlist).
-- Add command schema and TS/Zig type/codegen pipeline.
-- Add event channel contract (`kind: "event"`) with typed payloads.
-- Add logging/trace IDs per command invocation.
+- Add event channel contract (`kind: "event"`) with typed payloads and listener lifecycle APIs.
+- Add streaming IPC primitive (channel/port model) for high-throughput or incremental responses.
+- Add command schema and TS/Zig type/codegen pipeline, including shared error/code definitions.
+- Add request correlation IDs and structured tracing logs for all command hops.
+- Add crash-safe Mode A supervision (healthcheck, restart backoff, max-retry policy).
 
 ### P2 (Quality/scale)
 
-- Binary fast path for large payloads (avoid JSON overhead for blobs).
+- Add binary payload fast path for large transfers (side channel instead of JSON body).
 - Command metrics (latency, failure rate, payload size histograms).
 - Hot-reload developer workflow for command handlers in Mode A.
-- More robust plugin sandboxing policy for shell/fs commands.
+- Add plugin permission manifests (default-deny) with granular command scopes.
+- Add sidecar packaging model for Mode A host (Tauri-style external binary with explicit allow rules).
+- Add CSP + custom app protocol support and disable direct `file://` loading by default.
 
 ### P3 (Polish)
 
 - Improve default app HTML demo into diagnostics dashboard.
-- Add docs site with architecture + plugin authoring guides.
-- Provide migration guide for older JSON-RPC integration users.
+- Add docs site with architecture + plugin authoring + security hardening guides.
+- Publish compatibility matrix vs Electron/Tauri APIs and migration notes.
+
+---
+
+## Electron/Tauri-Informed Recommendations
+
+The following items are direct adaptations of patterns proven in Electron and Tauri:
+
+- Security defaults first:
+  - Keep renderer/webview isolated and minimize exposed bridge surface.
+  - Validate IPC sender/origin before command dispatch.
+  - Enforce explicit permission grants per command scope and window.
+- Capability model maturation:
+  - Add capability documents keyed by window/webview IDs.
+  - Document and test permission-merge behavior when multiple capabilities apply.
+  - Ship default-deny plugin permission sets with narrow `allow-*` entries.
+- IPC ergonomics + reliability:
+  - Keep `invoke` for request/response.
+  - Add typed events for fire-and-forget state changes.
+  - Add stream/channel transport for large or progressive results.
+  - Standardize error serialization to preserve machine-readable codes.
+- Sidecar and host process model:
+  - Treat external TS hosts as first-class sidecars with explicit allow rules for executable + args.
+  - Add managed lifecycle policies (spawn strategy, restart backoff, graceful shutdown).
+  - Add handshake/version negotiation between runtime and host.
+- Performance discipline:
+  - Prevent sync/blocking work on UI-critical threads.
+  - Add startup and invoke latency budgets with regression checks.
+  - Measure before optimizing and keep automated performance smoke checks.
+- Productization parity:
+  - Add updater + release signature pipeline and CLI distribution workflows.
+  - Provide strict template defaults for CSP, permissions, and bridge exposure.
 
 ---
 
 ## Execution Order Recommendation
 
-1. Build Phase 7 CLI workflow and templates.
-2. Add Phase 8 SDK + codegen for type safety.
-3. Complete cross-platform + packaging phases.
+1. Phase 8: ship typed SDK + command/error schema.
+2. Implement P0 security/reliability hardening backlog.
+3. Complete Phase 9 cross-platform behavior parity.
+4. Complete Phase 10 packaging/distribution and updater workflow.

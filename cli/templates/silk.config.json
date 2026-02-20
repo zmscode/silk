@@ -1,12 +1,12 @@
 {
   "window": {
-    "title": "Silk",
+    "title": "__APP_TITLE__",
     "width": 1200,
     "height": 800
   },
   "frontend": {
-    "dev_url": null,
-    "dist_entry": null
+    "dev_url": "http://127.0.0.1:5173",
+    "dist_entry": "./dist/index.html"
   },
   "permissions": {
     "allow_commands": [
@@ -14,23 +14,12 @@
       "silk:appInfo",
       "silk:app/version",
       "silk:app/platform",
-      "silk:app/quit",
       "silk:window/getFrame",
       "silk:window/setTitle",
       "silk:window/setSize",
       "silk:window/show",
       "silk:window/hide",
-      "silk:window/center",
-      "silk:fs/readText",
-      "silk:fs/writeText",
-      "silk:fs/listDir",
-      "silk:fs/stat",
-      "silk:shell/exec",
-      "silk:dialog/open",
-      "silk:dialog/save",
-      "silk:dialog/message",
-      "silk:clipboard/readText",
-      "silk:clipboard/writeText"
+      "silk:window/center"
     ],
     "deny_commands": [],
     "fs": {
@@ -38,7 +27,7 @@
       "write_roots": ["."]
     },
     "shell": {
-      "allow_programs": ["echo", "ls", "cat", "pbcopy", "pbpaste"]
+      "allow_programs": []
     }
   },
   "mode_a": {
