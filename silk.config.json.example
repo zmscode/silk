@@ -19,7 +19,10 @@
       "silk:window/center",
       "silk:fs/readText",
       "silk:fs/writeText",
-      "silk:fs/listDir"
+      "silk:fs/listDir",
+      "silk:shell/exec",
+      "silk:clipboard/readText",
+      "silk:clipboard/writeText"
     ]
   }
 }

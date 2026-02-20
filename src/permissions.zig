@@ -23,6 +23,9 @@ pub const Permissions = struct {
         try p.allow("silk:fs/readText");
         try p.allow("silk:fs/writeText");
         try p.allow("silk:fs/listDir");
+        try p.allow("silk:shell/exec");
+        try p.allow("silk:clipboard/readText");
+        try p.allow("silk:clipboard/writeText");
         return p;
     }
 
