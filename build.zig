@@ -3,6 +3,11 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSmall });
+    const user_zig_path = b.option([]const u8, "user-zig", "Path to user command module Zig source file") orelse "stubs/user_stub.zig";
+    const user_zig_source: std.Build.LazyPath = if (std.fs.path.isAbsolute(user_zig_path))
+        .{ .cwd_relative = user_zig_path }
+    else
+        b.path(user_zig_path);
 
     const os = target.result.os.tag;
 
@@ -10,6 +15,19 @@ pub fn build(b: *std.Build) void {
 
     const sriracha_dep = b.dependency("sriracha", .{ .target = target });
     const sriracha_mod = sriracha_dep.module("sriracha");
+    const silk_api_mod = b.createModule(.{
+        .root_source_file = b.path("lib/silk.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const user_commands_mod = b.createModule(.{
+        .root_source_file = user_zig_source,
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "silk", .module = silk_api_mod },
+        },
+    });
 
     // ── silk runtime binary ──
 
@@ -19,6 +37,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "sriracha", .module = sriracha_mod },
+            .{ .name = "silk", .module = silk_api_mod },
+            .{ .name = "user_commands", .module = user_commands_mod },
         },
     });
 

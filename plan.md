@@ -79,7 +79,7 @@ Error response:
 | 3 | Built-in plugin commands | ✅ Complete |
 | 4 | Config + capability permissions | ✅ Complete |
 | 5 | Mode A TS command host | ✅ Complete |
-| 6 | Mode B user Zig compile-in | ⬜ Pending |
+| 6 | Mode B user Zig compile-in | ✅ Complete |
 | 7 | CLI productization | ⬜ Pending |
 | 8 | TypeScript SDK | ⬜ Pending |
 | 9 | Cross-platform hardening | ⬜ Pending |
@@ -250,6 +250,22 @@ Error response:
 - Public host API (`lib/silk.zig`) for registration and utilities.
 - Default fallback stub (`stubs/user_stub.zig`).
 
+**Implemented**
+- Build wiring:
+  - `zig build -Duser-zig=path/to/user_commands.zig` now swaps the compile-in command module.
+  - Default module path is `stubs/user_stub.zig` when no option is passed.
+- Public API:
+  - `lib/silk.zig` exports `silk.Host` registration interface for user modules.
+  - Utility helpers for JSON arg parsing:
+    - `expectObject(args)`
+    - `getString(obj, key)`
+    - `getOptionalString(obj, key)`
+- Runtime integration:
+  - Core runtime always calls user module registration during startup.
+  - Compile-time signature checks ensure user module exports:
+    - `pub fn register(host: *silk.Host) !void`
+  - Invalid signatures fail at compile-time with explicit diagnostics.
+
 **Acceptance criteria**
 - User command module can be registered without editing core runtime source.
 - Build fails with clear diagnostics for invalid user module signatures.
@@ -360,9 +376,6 @@ Error response:
 
 ## Execution Order Recommendation
 
-1. Finish Phase 4 (config + capabilities).
-2. Start Phase 3 plugin implementations against the capability model.
-3. Build Phase 5 TS host bridge.
-4. Build Phase 7 CLI workflow and templates.
-5. Add Phase 8 SDK + codegen for type safety.
-6. Complete cross-platform + packaging phases.
+1. Build Phase 7 CLI workflow and templates.
+2. Add Phase 8 SDK + codegen for type safety.
+3. Complete cross-platform + packaging phases.

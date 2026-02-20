@@ -1,5 +1,7 @@
 const std = @import("std");
 const sriracha = @import("sriracha");
+const silk_api = @import("silk");
+const user_commands = @import("user_commands");
 
 const protocol = @import("ipc/message.zig");
 const ipc = @import("ipc/router.zig");
@@ -68,6 +70,7 @@ pub fn main(_: std.process.Init) !void {
     defer router.deinit();
 
     try plugins.registerAll(&router);
+    try registerUserCommands(&router);
 
     ctx = .{
         .allocator = allocator,
@@ -206,6 +209,17 @@ fn onScriptMessage(_: *sriracha.WebView, message: []const u8) void {
 
 fn dispatchRequest(req: protocol.InvokeRequest) ![]u8 {
     return router.dispatch(&ctx, req);
+}
+
+fn registerUserCommands(target_router: *ipc.Router) !void {
+    var host = silk_api.Host.init(@ptrCast(target_router), registerUserCommand);
+    try silk_api.registerUserModule(&host, user_commands);
+}
+
+fn registerUserCommand(raw_ctx: *anyopaque, cmd: []const u8, user_handler: silk_api.UserHandler) !void {
+    const target_router: *ipc.Router = @ptrCast(@alignCast(raw_ctx));
+    const handler: ipc.HandlerFn = @ptrCast(user_handler);
+    try target_router.register(cmd, handler);
 }
 
 fn queueModeAJob(job: ModeAJob) !void {
