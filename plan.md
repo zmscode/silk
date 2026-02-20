@@ -76,8 +76,8 @@ Error response:
 |---|---|---|
 | 1 | Runtime foundation (window/webview/build) | ✅ Complete |
 | 2 | Command IPC foundation | ✅ Complete |
-| 3 | Built-in plugin commands | 🟨 In Progress |
-| 4 | Config + capability permissions | 🟨 In Progress |
+| 3 | Built-in plugin commands | ✅ Complete |
+| 4 | Config + capability permissions | ✅ Complete |
 | 5 | Mode A TS command host | ⬜ Pending |
 | 6 | Mode B user Zig compile-in | ⬜ Pending |
 | 7 | CLI productization | ⬜ Pending |
@@ -155,14 +155,16 @@ Error response:
   - `silk:fs/readText`
   - `silk:fs/writeText`
   - `silk:fs/listDir`
+  - `silk:fs/stat`
   - `silk:shell/exec`
   - `silk:dialog/open`
+  - `silk:dialog/save`
+  - `silk:dialog/message`
   - `silk:clipboard/readText`
   - `silk:clipboard/writeText`
-- Remaining in this phase:
-  - Dialog save panel + message dialogs.
-  - Rich shell options (env overrides, stdin streaming, timeout/cancel).
-  - Cross-platform clipboard/dialog implementations (currently macOS-first).
+- Notes:
+  - Shell supports argv, cwd, env overrides, stdin, and output size limits.
+  - Dialog/clipboard are macOS-first implementations; cross-platform parity remains in Phase 9.
 
 **Scope (initial plugin set)**
 - `silk:fs` (read/write/list/stat)
@@ -192,21 +194,20 @@ Error response:
 - Move from hardcoded allowlist to config-driven, explicit capability security model.
 
 **Status**
-- In progress: baseline allowlist scaffold exists.
+- Complete for current milestone: config-driven command and scoped permission policy is active.
 
 **Deliverables**
 - `silk.config.json` schema and parser.
 - Capability model:
-  - allow/deny by command and plugin
-  - scoped controls (paths/processes/network where relevant)
-- Environment profiles:
-  - dev profile (looser defaults)
-  - production profile (strict defaults)
+  - allow/deny by command
+  - scoped controls for filesystem roots and shell program allowlist
 - Validation diagnostics with actionable startup errors.
+- Profile presets are deferred to post-phase improvements (config schema is ready for extension).
 
 **Acceptance criteria**
-- App start fails fast on invalid config.
+- App start fails fast on invalid config shape.
 - Commands denied unless explicitly granted by capability rules.
+- FS/shell commands are additionally constrained by configured scopes.
 
 ---
 

@@ -30,9 +30,15 @@ pub fn main(_: std.process.Init) !void {
 
     permissions = try permissions_mod.Permissions.initDefault(allocator);
     defer permissions.deinit();
-    if (loaded_cfg.cfg.allowed_commands.len > 0) {
-        try permissions.replaceAllowlist(loaded_cfg.cfg.allowed_commands);
+    if (loaded_cfg.cfg.permissions.allow_commands.len > 0) {
+        try permissions.replaceAllowlist(loaded_cfg.cfg.permissions.allow_commands);
     }
+    try permissions.replaceDenylist(loaded_cfg.cfg.permissions.deny_commands);
+    permissions.setFsRoots(
+        loaded_cfg.cfg.permissions.fs_read_roots,
+        loaded_cfg.cfg.permissions.fs_write_roots,
+    );
+    try permissions.setShellAllowPrograms(loaded_cfg.cfg.permissions.shell_allow_programs);
 
     router = ipc.Router.init(allocator);
     defer router.deinit();
@@ -55,9 +61,9 @@ pub fn main(_: std.process.Init) !void {
     sriracha.app.init(.{ .on_ready = onReady });
 
     window.create(.{
-        .title = loaded_cfg.cfg.title,
-        .width = loaded_cfg.cfg.width,
-        .height = loaded_cfg.cfg.height,
+        .title = loaded_cfg.cfg.window.title,
+        .width = loaded_cfg.cfg.window.width,
+        .height = loaded_cfg.cfg.window.height,
         .callbacks = .{ .on_close = onClose },
     });
     window.center();

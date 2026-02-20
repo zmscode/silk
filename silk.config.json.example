@@ -20,10 +20,21 @@
       "silk:fs/readText",
       "silk:fs/writeText",
       "silk:fs/listDir",
+      "silk:fs/stat",
       "silk:shell/exec",
       "silk:dialog/open",
+      "silk:dialog/save",
+      "silk:dialog/message",
       "silk:clipboard/readText",
       "silk:clipboard/writeText"
-    ]
+    ],
+    "deny_commands": [],
+    "fs": {
+      "read_roots": ["."],
+      "write_roots": ["."]
+    },
+    "shell": {
+      "allow_programs": ["echo", "ls", "cat", "pbcopy", "pbpaste"]
+    }
   }
 }
