@@ -14,9 +14,15 @@ pub const PermissionsConfig = struct {
     shell_allow_programs: []const []const u8 = &.{},
 };
 
+pub const ModeAConfig = struct {
+    enabled: bool = false,
+    argv: []const []const u8 = &.{},
+};
+
 pub const AppConfig = struct {
     window: WindowConfig = .{},
     permissions: PermissionsConfig = .{},
+    mode_a: ModeAConfig = .{},
 };
 
 pub const LoadedConfig = struct {
@@ -28,6 +34,7 @@ pub const LoadedConfig = struct {
     owned_fs_read_roots: []const []const u8 = &.{},
     owned_fs_write_roots: []const []const u8 = &.{},
     owned_shell_allow_programs: []const []const u8 = &.{},
+    owned_mode_a_argv: []const []const u8 = &.{},
 
     pub fn deinit(self: *LoadedConfig, allocator: std.mem.Allocator) void {
         if (self.owned_allow_commands.len > 0) allocator.free(self.owned_allow_commands);
@@ -35,6 +42,7 @@ pub const LoadedConfig = struct {
         if (self.owned_fs_read_roots.len > 0) allocator.free(self.owned_fs_read_roots);
         if (self.owned_fs_write_roots.len > 0) allocator.free(self.owned_fs_write_roots);
         if (self.owned_shell_allow_programs.len > 0) allocator.free(self.owned_shell_allow_programs);
+        if (self.owned_mode_a_argv.len > 0) allocator.free(self.owned_mode_a_argv);
         if (self.parsed) |*p| p.deinit();
     }
 };
@@ -117,6 +125,24 @@ pub fn loadFromFile(allocator: std.mem.Allocator, path: []const u8) !LoadedConfi
                 loaded.owned_shell_allow_programs = programs;
                 loaded.cfg.permissions.shell_allow_programs = programs;
             }
+        }
+    }
+
+    if (obj.get("mode_a")) |mode_a_val| {
+        if (mode_a_val != .object) return error.InvalidModeAConfig;
+        const mode_a_obj = mode_a_val.object;
+
+        if (mode_a_obj.get("enabled")) |enabled_val| {
+            loaded.cfg.mode_a.enabled = switch (enabled_val) {
+                .bool => |b| b,
+                else => return error.InvalidModeAEnabled,
+            };
+        }
+
+        if (mode_a_obj.get("argv")) |argv_val| {
+            const argv = try parseStringArray(allocator, argv_val);
+            loaded.owned_mode_a_argv = argv;
+            loaded.cfg.mode_a.argv = argv;
         }
     }
 

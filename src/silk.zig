@@ -6,6 +6,7 @@ const ipc = @import("ipc/router.zig");
 const config_mod = @import("config.zig");
 const permissions_mod = @import("permissions.zig");
 const plugins = @import("plugins/register.zig");
+const ts_bridge = @import("ts_bridge.zig");
 
 const bridge_js = @embedFile("ipc/bridge.js");
 
@@ -18,6 +19,7 @@ var webview: sriracha.WebView = .{};
 var router: ipc.Router = undefined;
 var permissions: permissions_mod.Permissions = undefined;
 var ctx: ipc.Context = undefined;
+var mode_a_bridge: ?ts_bridge.Bridge = null;
 
 var eval_queue: std.ArrayList([]u8) = .empty;
 var eval_flush_scheduled = false;
@@ -39,6 +41,15 @@ pub fn main(_: std.process.Init) !void {
         loaded_cfg.cfg.permissions.fs_write_roots,
     );
     try permissions.setShellAllowPrograms(loaded_cfg.cfg.permissions.shell_allow_programs);
+
+    if (loaded_cfg.cfg.mode_a.enabled) {
+        mode_a_bridge = try ts_bridge.Bridge.init(allocator, .{
+            .enabled = loaded_cfg.cfg.mode_a.enabled,
+            .argv = loaded_cfg.cfg.mode_a.argv,
+        });
+    } else {
+        mode_a_bridge = null;
+    }
 
     router = ipc.Router.init(allocator);
     defer router.deinit();
@@ -124,7 +135,7 @@ fn onScriptMessage(_: *sriracha.WebView, message: []const u8) void {
     };
     defer parsed_invoke.parsed.deinit();
 
-    const js = router.dispatch(&ctx, parsed_invoke.req) catch |err| {
+    const js = dispatchRequest(parsed_invoke.req) catch |err| {
         std.debug.print("[silk] invoke dispatch error: {s}\n", .{@errorName(err)});
         return;
     };
@@ -133,6 +144,25 @@ fn onScriptMessage(_: *sriracha.WebView, message: []const u8) void {
         allocator.free(js);
         std.debug.print("[silk] schedule eval error: {s}\n", .{@errorName(err)});
     };
+}
+
+fn dispatchRequest(req: protocol.InvokeRequest) ![]u8 {
+    if (router.hasHandler(req.cmd)) {
+        return router.dispatch(&ctx, req);
+    }
+
+    if (!ctx.permissions.allows(req.cmd)) {
+        return router.buildErrorScript(req.callback, "Command denied by permissions");
+    }
+
+    if (mode_a_bridge) |*bridge| {
+        const result = bridge.invoke(req) catch |err| {
+            return router.buildErrorScript(req.callback, @errorName(err));
+        };
+        return router.buildSuccessScript(req.callback, result);
+    }
+
+    return router.buildErrorScript(req.callback, "Command not found");
 }
 
 fn enqueueEval(js: []u8) !void {

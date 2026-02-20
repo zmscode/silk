@@ -32,6 +32,10 @@ pub const Router = struct {
         try self.handlers.put(cmd, handler);
     }
 
+    pub fn hasHandler(self: *Router, cmd: []const u8) bool {
+        return self.handlers.contains(cmd);
+    }
+
     /// Returns a heap-allocated JS eval string:
     /// window.__silk.__dispatch({...})
     pub fn dispatch(self: *Router, ctx: *Context, req: InvokeRequest) ![]u8 {
@@ -48,6 +52,14 @@ pub const Router = struct {
         };
 
         return self.buildDispatch(req.callback, true, result, null);
+    }
+
+    pub fn buildSuccessScript(self: *Router, callback: i64, result: std.json.Value) ![]u8 {
+        return self.buildDispatch(callback, true, result, null);
+    }
+
+    pub fn buildErrorScript(self: *Router, callback: i64, err_msg: []const u8) ![]u8 {
+        return self.buildDispatch(callback, false, .{ .null = {} }, err_msg);
     }
 
     fn buildDispatch(self: *Router, callback: i64, ok: bool, result: std.json.Value, err_msg: ?[]const u8) ![]u8 {

@@ -78,7 +78,7 @@ Error response:
 | 2 | Command IPC foundation | ✅ Complete |
 | 3 | Built-in plugin commands | ✅ Complete |
 | 4 | Config + capability permissions | ✅ Complete |
-| 5 | Mode A TS command host | ⬜ Pending |
+| 5 | Mode A TS command host | 🟨 In Progress |
 | 6 | Mode B user Zig compile-in | ⬜ Pending |
 | 7 | CLI productization | ⬜ Pending |
 | 8 | TypeScript SDK | ⬜ Pending |
@@ -221,6 +221,16 @@ Error response:
 - stdio protocol bridge between webview commands and TS host.
 - Non-blocking reader with main-thread handoff.
 - Error and lifecycle handling for host crashes/timeouts.
+
+**Current progress**
+- Implemented:
+  - Config-driven Mode A section (`mode_a.enabled`, `mode_a.argv`).
+  - `src/ts_bridge.zig` stdio bridge for forwarding command envelopes to a TS host process.
+  - Runtime fallback: unknown commands can be forwarded to Mode A host when enabled.
+  - Example TS host: `examples/ts-host.mjs`.
+- Remaining:
+  - Persistent host process with reader thread + scheduled main-thread handoff.
+  - Retry/restart policy and request timeout tracking.
 
 **Acceptance criteria**
 - TS host handles commands with same API as in-process handlers.

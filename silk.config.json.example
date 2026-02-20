@@ -36,5 +36,9 @@
     "shell": {
       "allow_programs": ["echo", "ls", "cat", "pbcopy", "pbpaste"]
     }
+  },
+  "mode_a": {
+    "enabled": false,
+    "argv": ["node", "./examples/ts-host.mjs"]
   }
 }
