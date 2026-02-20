@@ -21,6 +21,7 @@
       "silk:fs/writeText",
       "silk:fs/listDir",
       "silk:shell/exec",
+      "silk:dialog/open",
       "silk:clipboard/readText",
       "silk:clipboard/writeText"
     ]

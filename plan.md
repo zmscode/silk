@@ -155,10 +155,14 @@ Error response:
   - `silk:fs/readText`
   - `silk:fs/writeText`
   - `silk:fs/listDir`
-- Scaffolded (not yet implemented):
   - `silk:shell/exec`
   - `silk:dialog/open`
   - `silk:clipboard/readText`
+  - `silk:clipboard/writeText`
+- Remaining in this phase:
+  - Dialog save panel + message dialogs.
+  - Rich shell options (env overrides, stdin streaming, timeout/cancel).
+  - Cross-platform clipboard/dialog implementations (currently macOS-first).
 
 **Scope (initial plugin set)**
 - `silk:fs` (read/write/list/stat)
