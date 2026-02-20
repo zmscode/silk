@@ -28,10 +28,17 @@ Create a project with a compile-in Zig command module scaffold:
 ./zig-out/bin/silk-cli init my-app --zig
 ```
 
+Scaffold without frontend tooling (no Vite files):
+
+```bash
+./zig-out/bin/silk-cli init my-app --frontend none
+```
+
 Useful flag:
 - `--force` overwrites existing files where possible.
+- `--frontend vite|none` chooses scaffold style (`vite` is default).
 
-## 3. Install Frontend Dependencies
+## 3. Install Frontend Dependencies (Vite Scaffold)
 
 Inside the generated app folder:
 
@@ -41,7 +48,26 @@ npm install
 
 `silk-cli dev` auto-detects package manager (`pnpm`, `yarn`, `bun`, then `npm`) and will install deps if `node_modules` is missing.
 
-## 4. Run in Dev Mode
+If you used `--frontend none`, skip this step until you add your own frontend tooling.
+
+## 4. Using a Non-Vite Frontend
+
+You can use any frontend stack. Silk runtime only needs:
+- a dev URL (`frontend.dev_url`) for live development
+- a built HTML entry path (`frontend.dist_entry`) for production/local builds
+
+For custom tooling:
+1. Create your own `package.json` scripts (or equivalent):
+   - `dev` should start your frontend dev server
+   - `build` should output your built frontend
+2. Set `silk.config.json`:
+   - `frontend.dev_url` to your dev server URL
+   - `frontend.dist_entry` to your built `index.html` path
+3. Run `silk-cli dev` and `silk-cli build` as usual.
+
+`silk-cli dev`/`build` trigger your package scripts; they are not Vite-specific.
+
+## 5. Run in Dev Mode
 
 Run frontend dev server + Silk runtime together:
 
@@ -64,7 +90,7 @@ silk-cli dev -- --my-arg value
 Optional:
 - `silk-cli dev --no-frontend` runs only runtime.
 
-## 5. Build
+## 6. Build
 
 From your app project:
 
@@ -80,7 +106,7 @@ Behavior:
 zig build --release=small
 ```
 
-## 6. Frontend Config (`silk.config.json`)
+## 7. Frontend Config (`silk.config.json`)
 
 The runtime reads:
 
@@ -89,7 +115,7 @@ The runtime reads:
 
 If neither is set, Silk falls back to embedded demo HTML.
 
-## 7. Mode B Compile-In Zig Commands
+## 8. Mode B Compile-In Zig Commands
 
 Compile runtime with a user Zig command module:
 
@@ -105,7 +131,7 @@ pub fn register(host: *silk.Host) !void
 
 Register commands through `host.register("name", handler)`.
 
-## 8. Basic Troubleshooting
+## 9. Basic Troubleshooting
 
 - `command not found: silk`: use full path to `zig-out/bin/silk` or add it to `PATH`.
 - Frontend does not load: check `frontend.dev_url` and dev server port.

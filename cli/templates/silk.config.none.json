@@ -1,0 +1,37 @@
+{
+  "window": {
+    "title": "__APP_TITLE__",
+    "width": 1200,
+    "height": 800
+  },
+  "frontend": {
+    "dev_url": null,
+    "dist_entry": null
+  },
+  "permissions": {
+    "allow_commands": [
+      "silk:ping",
+      "silk:appInfo",
+      "silk:app/version",
+      "silk:app/platform",
+      "silk:window/getFrame",
+      "silk:window/setTitle",
+      "silk:window/setSize",
+      "silk:window/show",
+      "silk:window/hide",
+      "silk:window/center"
+    ],
+    "deny_commands": [],
+    "fs": {
+      "read_roots": ["."],
+      "write_roots": ["."]
+    },
+    "shell": {
+      "allow_programs": []
+    }
+  },
+  "mode_a": {
+    "enabled": false,
+    "argv": ["node", "./examples/ts-host.mjs"]
+  }
+}

@@ -1,5 +1,11 @@
 import "./styles.css";
 
+function requireElement<T extends Element>(selector: string): T {
+	const node = document.querySelector<T>(selector);
+	if (!node) throw new Error(`Missing required element: ${selector}`);
+	return node;
+}
+
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing #app root");
 
@@ -12,8 +18,7 @@ root.innerHTML = `
 `;
 app.appendChild(root);
 
-const out = document.querySelector<HTMLPreElement>("#out");
-if (!out) throw new Error("Missing #out");
+const out = requireElement<HTMLPreElement>("#out");
 
 async function run() {
 	try {

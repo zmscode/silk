@@ -7,15 +7,22 @@ const TemplateFile = struct {
     render_placeholders: bool = true,
 };
 
-const template_files = [_]TemplateFile{
+const template_vite_files = [_]TemplateFile{
     .{ .rel_path = "package.json", .body = @embedFile("templates/package.json.tmpl") },
     .{ .rel_path = "index.html", .body = @embedFile("templates/index.html") },
     .{ .rel_path = "src/main.ts", .body = @embedFile("templates/src_main.ts") },
     .{ .rel_path = "src/styles.css", .body = @embedFile("templates/src_styles.css"), .render_placeholders = false },
     .{ .rel_path = "src/silk.d.ts", .body = @embedFile("templates/src_silk.d.ts"), .render_placeholders = false },
     .{ .rel_path = "tsconfig.json", .body = @embedFile("templates/tsconfig.json"), .render_placeholders = false },
-    .{ .rel_path = "vite.config.ts", .body = @embedFile("templates/vite.config.ts"), .render_placeholders = false },
+    .{ .rel_path = "vite.config.mjs", .body = @embedFile("templates/vite.config.mjs"), .render_placeholders = false },
     .{ .rel_path = "silk.config.json", .body = @embedFile("templates/silk.config.json") },
+};
+
+const template_none_frontend_files = [_]TemplateFile{
+    .{ .rel_path = "silk.config.json", .body = @embedFile("templates/silk.config.none.json") },
+};
+
+const template_common_files = [_]TemplateFile{
     .{ .rel_path = ".gitignore", .body = @embedFile("templates/gitignore"), .render_placeholders = false },
 };
 
@@ -30,6 +37,11 @@ const PackageManager = enum {
     pnpm,
     yarn,
     bun,
+};
+
+const FrontendKind = enum {
+    vite,
+    none,
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -66,6 +78,7 @@ fn runInit(io: std.Io, allocator: std.mem.Allocator, args: *std.process.Args.Ite
     var project_dir: ?[]const u8 = null;
     var with_zig = false;
     var force = false;
+    var frontend: FrontendKind = .vite;
 
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--zig")) {
@@ -74,6 +87,25 @@ fn runInit(io: std.Io, allocator: std.mem.Allocator, args: *std.process.Args.Ite
         }
         if (std.mem.eql(u8, arg, "--force")) {
             force = true;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--frontend")) {
+            const value = args.next() orelse {
+                std.debug.print("missing value for --frontend (expected: vite|none)\n", .{});
+                return error.InvalidArgs;
+            };
+            frontend = parseFrontendKind(value) catch {
+                std.debug.print("invalid --frontend value: {s} (expected: vite|none)\n", .{value});
+                return error.InvalidArgs;
+            };
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--frontend=")) {
+            const value = arg["--frontend=".len..];
+            frontend = parseFrontendKind(value) catch {
+                std.debug.print("invalid --frontend value: {s} (expected: vite|none)\n", .{value});
+                return error.InvalidArgs;
+            };
             continue;
         }
         if (std.mem.startsWith(u8, arg, "--")) {
@@ -98,7 +130,15 @@ fn runInit(io: std.Io, allocator: std.mem.Allocator, args: *std.process.Args.Ite
     }
     try std.Io.Dir.cwd().createDirPath(io, target_dir);
 
-    for (template_files) |tpl| {
+    const frontend_templates = switch (frontend) {
+        .vite => template_vite_files[0..],
+        .none => template_none_frontend_files[0..],
+    };
+
+    for (frontend_templates) |tpl| {
+        try writeTemplateFile(io, allocator, target_dir, app_name, app_title, tpl, force);
+    }
+    for (template_common_files) |tpl| {
         try writeTemplateFile(io, allocator, target_dir, app_name, app_title, tpl, force);
     }
     if (with_zig) {
@@ -110,7 +150,9 @@ fn runInit(io: std.Io, allocator: std.mem.Allocator, args: *std.process.Args.Ite
     if (!std.mem.eql(u8, target_dir, ".")) {
         std.debug.print("  cd {s}\n", .{target_dir});
     }
-    std.debug.print("  npm install\n", .{});
+    if (frontend == .vite) {
+        std.debug.print("  npm install\n", .{});
+    }
     std.debug.print("  silk dev\n", .{});
 }
 
@@ -242,6 +284,12 @@ fn detectPackageManager() PackageManager {
     return .npm;
 }
 
+fn parseFrontendKind(value: []const u8) !FrontendKind {
+    if (std.mem.eql(u8, value, "vite")) return .vite;
+    if (std.mem.eql(u8, value, "none")) return .none;
+    return error.InvalidFrontend;
+}
+
 fn resolveRuntimeBinary(environ: *const std.process.Environ.Map) []const u8 {
     if (environ.get("SILK_RUNTIME_BIN")) |from_env| {
         return from_env;
@@ -365,7 +413,8 @@ fn printUsage() void {
         \\silk
         \\
         \\Usage:
-        \\  silk init [name] [--zig] [--force]  Scaffold a new Silk project
+        \\  silk init [name] [--zig] [--force] [--frontend vite|none]
+        \\                                        Scaffold a new Silk project
         \\  silk dev [--no-frontend] [args...]  Run frontend dev server + Silk runtime
         \\  silk build                           Build frontend assets + runtime release binary
         \\

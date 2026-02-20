@@ -1,12 +1,12 @@
 {
-	"compilerOptions": {
-		"target": "ES2022",
-		"module": "ESNext",
-		"moduleResolution": "Bundler",
-		"strict": true,
-		"lib": ["ES2022", "DOM", "DOM.Iterable"],
-		"types": [],
-		"skipLibCheck": true,
-	},
-	"include": ["src"],
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "skipLibCheck": true
+  },
+  "include": ["src", "src_*.ts", "src_*.d.ts"]
 }

@@ -17,7 +17,7 @@ IPC model is Tauri-style command invocation (`invoke(cmd, args)`), not JSON-RPC.
 - Built-in bootstrap commands exist: `silk:ping`, `silk:appInfo`.
 - Mode A (external TS host) and Mode B (compile-in user Zig module) are both implemented.
 - macOS app bundle generation is connected to `zig build`.
-- CLI Phase 7 baseline is implemented (`init`, `dev`, `build`).
+- CLI Phase 7 is implemented (`init`, `dev`, `build`) with selectable frontend scaffolding.
 
 ---
 
@@ -279,7 +279,7 @@ Error response:
 - Provide complete dev/build workflow tooling.
 
 **Commands**
-- `silk init [--zig]`
+- `silk init [--zig] [--frontend vite|none]`
 - `silk dev`
 - `silk build`
 
@@ -290,8 +290,10 @@ Error response:
 - Consistent user-facing binary naming (`silk` command UX).
 
 **Implemented**
-- `silk init [name] [--zig] [--force]`
-  - Scaffolds a TypeScript + Vite frontend, `silk.config.json`, and bridge typings.
+- `silk init [name] [--zig] [--force] [--frontend vite|none]`
+  - Scaffolds either:
+    - `vite` (default): TypeScript + Vite frontend, bridge typings, and runtime config.
+    - `none`: runtime-only scaffold with minimal `silk.config.json`.
   - Template assets are embedded in CLI via `@embedFile` (`cli/templates/*`).
   - Optional `--zig` emits `user_commands.zig` scaffold.
 - `silk dev [--no-frontend] [args...]`
@@ -306,6 +308,10 @@ Error response:
     - `frontend.dev_url`
     - `frontend.dist_entry`
   - Runtime now loads `dev_url` in dev mode or `dist_entry` file URL for built assets.
+- Template health improvements:
+  - Template `tsconfig.json` shape fixed for strict JSON validity and in-repo template diagnostics.
+  - Vite config template switched to `vite.config.mjs` to avoid TypeScript module-resolution editor errors when dependencies are not installed.
+  - Generated `src/main.ts` now waits for `window.__silk` bridge availability before invoking commands.
 
 **Acceptance criteria**
 - New project can be initialized and run with one command.

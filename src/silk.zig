@@ -43,42 +43,16 @@ pub fn main(_: std.process.Init) !void {
     var loaded_cfg = try config_mod.loadFromFile(allocator, "silk.config.json");
     defer loaded_cfg.deinit(allocator);
 
-    permissions = try permissions_mod.Permissions.initDefault(allocator);
+    try configurePermissions(loaded_cfg.cfg.permissions);
     defer permissions.deinit();
-    if (loaded_cfg.cfg.permissions.allow_commands.len > 0) {
-        try permissions.replaceAllowlist(loaded_cfg.cfg.permissions.allow_commands);
-    }
-    try permissions.replaceDenylist(loaded_cfg.cfg.permissions.deny_commands);
-    permissions.setFsRoots(
-        loaded_cfg.cfg.permissions.fs_read_roots,
-        loaded_cfg.cfg.permissions.fs_write_roots,
-    );
-    try permissions.setShellAllowPrograms(loaded_cfg.cfg.permissions.shell_allow_programs);
 
-    if (loaded_cfg.cfg.mode_a.enabled) {
-        mode_a_bridge = try ts_bridge.Bridge.init(allocator, .{
-            .enabled = loaded_cfg.cfg.mode_a.enabled,
-            .argv = loaded_cfg.cfg.mode_a.argv,
-        });
-        mode_a_queue = .empty;
-        mode_a_shutdown = false;
-        mode_a_worker_thread = try std.Thread.spawn(.{}, modeAWorkerMain, .{});
-    } else {
-        mode_a_bridge = null;
-    }
+    try startModeABridge(loaded_cfg.cfg.mode_a);
 
     router = ipc.Router.init(allocator);
     defer router.deinit();
 
-    try plugins.registerAll(&router);
-    try registerUserCommands(&router);
-
-    ctx = .{
-        .allocator = allocator,
-        .webview = @ptrCast(&webview),
-        .window = @ptrCast(&window),
-        .permissions = &permissions,
-    };
+    try registerCommandHandlers();
+    initRouterContext();
 
     eval_queue = .empty;
     defer {
@@ -113,6 +87,44 @@ pub fn main(_: std.process.Init) !void {
     };
 
     sriracha.app.run();
+}
+
+fn configurePermissions(cfg: config_mod.PermissionsConfig) !void {
+    permissions = try permissions_mod.Permissions.initDefault(allocator);
+    if (cfg.allow_commands.len > 0) {
+        try permissions.replaceAllowlist(cfg.allow_commands);
+    }
+    try permissions.replaceDenylist(cfg.deny_commands);
+    permissions.setFsRoots(cfg.fs_read_roots, cfg.fs_write_roots);
+    try permissions.setShellAllowPrograms(cfg.shell_allow_programs);
+}
+
+fn startModeABridge(mode_a_cfg: config_mod.ModeAConfig) !void {
+    if (mode_a_cfg.enabled) {
+        mode_a_bridge = try ts_bridge.Bridge.init(allocator, .{
+            .enabled = mode_a_cfg.enabled,
+            .argv = mode_a_cfg.argv,
+        });
+        mode_a_queue = .empty;
+        mode_a_shutdown = false;
+        mode_a_worker_thread = try std.Thread.spawn(.{}, modeAWorkerMain, .{});
+    } else {
+        mode_a_bridge = null;
+    }
+}
+
+fn registerCommandHandlers() !void {
+    try plugins.registerAll(&router);
+    try registerUserCommands(&router);
+}
+
+fn initRouterContext() void {
+    ctx = .{
+        .allocator = allocator,
+        .webview = @ptrCast(&webview),
+        .window = @ptrCast(&window),
+        .permissions = &permissions,
+    };
 }
 
 fn loadFrontend(frontend: config_mod.FrontendConfig) !void {
@@ -200,39 +212,21 @@ fn onScriptMessage(_: *sriracha.WebView, message: []const u8) void {
     defer parsed_invoke.parsed.deinit();
 
     if (router.hasHandler(parsed_invoke.req.cmd)) {
-        const js = dispatchRequest(parsed_invoke.req) catch |err| {
+        const js = router.dispatch(&ctx, parsed_invoke.req) catch |err| {
             std.debug.print("[silk] invoke dispatch error: {s}\n", .{@errorName(err)});
             return;
         };
-
-        enqueueEval(js) catch |err| {
-            allocator.free(js);
-            std.debug.print("[silk] schedule eval error: {s}\n", .{@errorName(err)});
-        };
+        scheduleOwnedScript(js, "invoke");
         return;
     }
 
     if (mode_a_bridge == null) {
-        const js = router.buildErrorScript(parsed_invoke.req.callback, "Command not found") catch |err| {
-            std.debug.print("[silk] invoke dispatch error: {s}\n", .{@errorName(err)});
-            return;
-        };
-        enqueueEval(js) catch |err| {
-            allocator.free(js);
-            std.debug.print("[silk] schedule eval error: {s}\n", .{@errorName(err)});
-        };
+        sendInvokeError(parsed_invoke.req.callback, "Command not found");
         return;
     }
 
     if (!ctx.permissions.allows(parsed_invoke.req.cmd)) {
-        const js = router.buildErrorScript(parsed_invoke.req.callback, "Command denied by permissions") catch |err| {
-            std.debug.print("[silk] invoke dispatch error: {s}\n", .{@errorName(err)});
-            return;
-        };
-        enqueueEval(js) catch |err| {
-            allocator.free(js);
-            std.debug.print("[silk] schedule eval error: {s}\n", .{@errorName(err)});
-        };
+        sendInvokeError(parsed_invoke.req.callback, "Command denied by permissions");
         return;
     }
 
@@ -246,8 +240,19 @@ fn onScriptMessage(_: *sriracha.WebView, message: []const u8) void {
     };
 }
 
-fn dispatchRequest(req: protocol.InvokeRequest) ![]u8 {
-    return router.dispatch(&ctx, req);
+fn sendInvokeError(callback: i64, message: []const u8) void {
+    const js = router.buildErrorScript(callback, message) catch |err| {
+        std.debug.print("[silk] invoke dispatch error: {s}\n", .{@errorName(err)});
+        return;
+    };
+    scheduleOwnedScript(js, "invoke");
+}
+
+fn scheduleOwnedScript(js: []u8, comptime source: []const u8) void {
+    enqueueEval(js) catch |err| {
+        allocator.free(js);
+        std.debug.print("[silk] {s} schedule eval error: {s}\n", .{ source, @errorName(err) });
+    };
 }
 
 fn registerUserCommands(target_router: *ipc.Router) !void {
@@ -297,11 +302,7 @@ fn modeAWorkerMain() void {
             break :blk router.buildErrorScript(job.req.callback, @errorName(err)) catch continue;
         };
         deinitInvokeRequest(job.req);
-
-        enqueueEval(js) catch |err| {
-            allocator.free(js);
-            std.debug.print("[silk] mode-a eval enqueue error: {s}\n", .{@errorName(err)});
-        };
+        scheduleOwnedScript(js, "mode-a");
     }
 }
 
